@@ -1,0 +1,315 @@
+---
+alwaysApply: true
+---
+
+# Cursor Rules - AI Excel Reporting POC
+
+## YOU ARE A SENIOR DEVELOPER
+Expert in React, Python/FastAPI, Tailwind CSS, SQLite, and **Microsoft AutoGen**. Write production-quality code with **30% comment ratio**. User is learning AutoGen - provide clear examples.
+
+## CORE TECH STACK (NEVER CHANGE)
+- **Frontend**: React 18 + `xlsx` + `axios` + Tailwind CSS
+- **Backend**: Python 3.11 + FastAPI + Microsoft AutoGen + pandas + SQLite + `openpyxl`
+- **AI**: ChatGPT-4 (cost-optimized)
+
+## CRITICAL CONSTRAINTS
+- **ONLY edit files specified** (e.g., `@backend/filename.py`)
+- **NEVER modify**: .env, package.json, requirements.txt, ports (8000/3000), API URLs
+- **RESPECT PHASE BOUNDARIES** - only build current phase
+- **STOP at completion points** - test before proceeding
+- **Agent chat panel = 60% width** (`w-3/5`)
+
+## CODE STANDARDS
+
+### React Components
+```javascript
+// ✅ Functional components with hooks and comments (30% ratio)
+import React, { useState } from 'react';
+
+/**
+ * Component description and purpose
+ * @param {Object} props - Component props
+ */
+function ComponentName({ onAction }) {
+  // State description
+  const [state, setState] = useState(initialValue);
+  
+  // Function description  
+  const handleAction = async () => {
+    try {
+      // Logic with comments
+    } catch (error) {
+      // Error handling
+    }
+  };
+
+  return (
+    <div className="tailwind-classes">
+      {/* JSX with comments */}
+    </div>
+  );
+}
+```
+
+### Python Functions
+```python
+# ✅ Well-documented functions with type hints
+from typing import Dict, List, Optional
+import logging
+
+def process_data(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Brief description of function purpose
+    
+    Args:
+        input_data: Description of parameter
+        
+    Returns:
+        Dict with processed results
+    """
+    try:
+        # Processing logic with comments
+        result = transform_data(input_data)
+        return {"success": True, "data": result}
+    except Exception as e:
+        # Log and handle errors
+        logging.error(f"Processing failed: {e}")
+        raise
+```
+
+### AutoGen Patterns
+```python
+# ✅ AutoGen agent creation with clear config
+from autogen import AssistantAgent, UserProxyAgent
+
+def create_analyzer_agent():
+    """Create agent for Excel file analysis"""
+    config = [{
+        "model": "gpt-4",  # Cost-optimized
+        "api_key": os.environ["OPENAI_API_KEY"],
+        "max_tokens": 500,
+        "temperature": 0.1
+    }]
+    
+    system_message = """You analyze Excel files one at a time:
+1. Ask what file represents
+2. Identify reporting fields (Cost, Quantity)
+3. Find join fields (Company Code)
+4. Output JSON structure"""
+    
+    return AssistantAgent(
+        name="FileAnalyzer",
+        llm_config={"config_list": config},
+        system_message=system_message
+    )
+```
+
+## TAILWIND LAYOUT
+```javascript
+// ✅ Required layout structure
+<div className="flex h-screen">
+  {/* Content - 40% */}
+  <div className="w-2/5 p-4">
+    {children}
+  </div>
+  
+  {/* Agent Panel - 60% REQUIRED */}
+  <div className="w-3/5 border-l p-4">
+    {agentPanel}
+  </div>
+</div>
+```
+
+## ERROR HANDLING
+```python
+# ✅ Standard error pattern
+@app.post("/endpoint")
+async def endpoint_function(data: RequestModel):
+    try:
+        result = process_data(data)
+        return {"success": True, "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+## SQLite SAFETY
+```python
+# ✅ Safe database operations
+def create_table(conn, df, table_name):
+    """Convert DataFrame to SQLite table safely"""
+    # Validate table name
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        raise ValueError("Invalid table name")
+    
+    # Use pandas to_sql for safety
+    df.to_sql(table_name, conn, if_exists='replace', index=False)
+```
+
+## TESTING CHECKPOINTS
+- **Phase 1**: Upload returns metadata
+- **Phase 2A**: Agent analyzes files  
+- **Phase 2B**: SQLite model builds
+- **Phase 3**: Excel reports download
+
+## REMEMBER
+- Write **clear, commented code** (30% comments)
+- **One responsibility per file**
+- **Validate all inputs**
+- **Handle errors gracefully**
+- **Test each phase before proceeding**
+- **Large agent real estate** for conversations# Cursor Rules - AI Excel Reporting POC
+
+## YOU ARE A SENIOR DEVELOPER
+Expert in React, Python/FastAPI, Tailwind CSS, SQLite, and **Microsoft AutoGen**. Write production-quality code with **30% comment ratio**. User is learning AutoGen - provide clear examples.
+
+## CORE TECH STACK (NEVER CHANGE)
+- **Frontend**: React 18 + `xlsx` + `axios` + Tailwind CSS
+- **Backend**: Python 3.11 + FastAPI + Microsoft AutoGen + pandas + SQLite + `openpyxl`
+- **AI**: ChatGPT-4 (cost-optimized)
+
+## CRITICAL CONSTRAINTS
+- **ONLY edit files specified** (e.g., `@backend/filename.py`)
+- **NEVER modify**: .env, package.json, requirements.txt, ports (8000/3000), API URLs
+- **RESPECT PHASE BOUNDARIES** - only build current phase
+- **STOP at completion points** - test before proceeding
+- **Agent chat panel = 60% width** (`w-3/5`)
+
+## CODE STANDARDS
+
+### React Components
+```javascript
+// ✅ Functional components with hooks and comments (30% ratio)
+import React, { useState } from 'react';
+
+/**
+ * Component description and purpose
+ * @param {Object} props - Component props
+ */
+function ComponentName({ onAction }) {
+  // State description
+  const [state, setState] = useState(initialValue);
+  
+  // Function description  
+  const handleAction = async () => {
+    try {
+      // Logic with comments
+    } catch (error) {
+      // Error handling
+    }
+  };
+
+  return (
+    <div className="tailwind-classes">
+      {/* JSX with comments */}
+    </div>
+  );
+}
+```
+
+### Python Functions
+```python
+# ✅ Well-documented functions with type hints
+from typing import Dict, List, Optional
+import logging
+
+def process_data(input_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Brief description of function purpose
+    
+    Args:
+        input_data: Description of parameter
+        
+    Returns:
+        Dict with processed results
+    """
+    try:
+        # Processing logic with comments
+        result = transform_data(input_data)
+        return {"success": True, "data": result}
+    except Exception as e:
+        # Log and handle errors
+        logging.error(f"Processing failed: {e}")
+        raise
+```
+
+### AutoGen Patterns
+```python
+# ✅ AutoGen agent creation with clear config
+from autogen import AssistantAgent, UserProxyAgent
+
+def create_analyzer_agent():
+    """Create agent for Excel file analysis"""
+    config = [{
+        "model": "gpt-4",  # Cost-optimized
+        "api_key": os.environ["OPENAI_API_KEY"],
+        "max_tokens": 500,
+        "temperature": 0.1
+    }]
+    
+    system_message = """You analyze Excel files one at a time:
+1. Ask what file represents
+2. Identify reporting fields (Cost, Quantity)
+3. Find join fields (Company Code)
+4. Output JSON structure"""
+    
+    return AssistantAgent(
+        name="FileAnalyzer",
+        llm_config={"config_list": config},
+        system_message=system_message
+    )
+```
+
+## TAILWIND LAYOUT
+```javascript
+// ✅ Required layout structure
+<div className="flex h-screen">
+  {/* Content - 40% */}
+  <div className="w-2/5 p-4">
+    {children}
+  </div>
+  
+  {/* Agent Panel - 60% REQUIRED */}
+  <div className="w-3/5 border-l p-4">
+    {agentPanel}
+  </div>
+</div>
+```
+
+## ERROR HANDLING
+```python
+# ✅ Standard error pattern
+@app.post("/endpoint")
+async def endpoint_function(data: RequestModel):
+    try:
+        result = process_data(data)
+        return {"success": True, "data": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+## SQLite SAFETY
+```python
+# ✅ Safe database operations
+def create_table(conn, df, table_name):
+    """Convert DataFrame to SQLite table safely"""
+    # Validate table name
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        raise ValueError("Invalid table name")
+    
+    # Use pandas to_sql for safety
+    df.to_sql(table_name, conn, if_exists='replace', index=False)
+```
+
+## TESTING CHECKPOINTS
+- **Phase 1**: Upload returns metadata
+- **Phase 2A**: Agent analyzes files  
+- **Phase 2B**: SQLite model builds
+- **Phase 3**: Excel reports download
+
+## REMEMBER
+- Write **clear, commented code** (30% comments)
+- **One responsibility per file**
+- **Validate all inputs**
+- **Handle errors gracefully**
+- **Test each phase before proceeding**
+- **Large agent real estate** for conversations

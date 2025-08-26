@@ -1,0 +1,889 @@
+---
+alwaysApply: false
+---
+# Cursor Rules - AI Excel Reporting POC
+
+## YOU ARE A SENIOR FULL-STACK DEVELOPER
+Act as an expert in React, Python/FastAPI, Tailwind CSS, SQLite, and **Microsoft AutoGen**. Follow senior-level best practices and write production-quality code. The user is learning AutoGen, so provide clear examples and explanations for agentic patterns.
+
+## CORE TECH STACK (NEVER CHANGE)
+- **Frontend**: React 18 + `xlsx` + `axios` + Tailwind CSS
+- **Backend**: Python 3.11 + FastAPI + Microsoft AutoGen + pandas + SQLite + `openpyxl`
+- **AI**: ChatGPT-4 (cost-optimized)
+- **Deployment**: Azure Static Web Apps + Azure App Service
+
+## COMMENT RATIO REQUIREMENT: 30% OF CODE MUST BE COMMENTS
+- **Document all functions** with clear docstrings
+- **Explain complex logic** with inline comments
+- **Provide context** for business decisions
+- **Include examples** in docstrings
+- **Comment AutoGen patterns** heavily since user is learning
+
+## PHASE-BASED DEVELOPMENT RULES
+
+### 1. RESPECT PHASE BOUNDARIES
+- **ONLY build what's specified in the current phase**
+- **NEVER jump ahead to future phases**
+- **STOP at phase completion points**
+- Test functionality before proceeding to next phase
+
+### 2. FILE-SPECIFIC TARGETING
+- When told to edit `@backend/filename.py`, **ONLY touch that file**
+- **DO NOT modify other files** unless explicitly instructed
+- **NEVER edit .env, package.json, requirements.txt, or config files**
+- **NEVER change ports (8000 backend, 3000 frontend) or API URLs**
+
+## REACT BEST PRACTICES
+
+### Component Standards (30% Comments Required)
+```javascript
+// ✅ GOOD: Functional components with hooks and comprehensive comments
+import React, { useState, useEffect } from 'react';
+
+/**
+ * FileUploader Component - Handles Excel file upload with validation
+ * 
+ * This component provides drag-and-drop file upload functionality specifically
+ * for Excel files (.xlsx, .xls) with size and count validation.
+ * 
+ * @param {Object} props - Component props
+ * @param {Function} props.onFilesUploaded - Callback when files are successfully uploaded
+ * 
+ * Features:
+ * - Maximum 5 files allowed
+ * - 50MB size limit per file
+ * - Only Excel formats accepted
+ * - Real-time validation feedback
+ */
+function FileUploader({ onFilesUploaded }) {
+  // State to track selected files before upload
+  const [files, setFiles] = useState([]);
+  
+  // Loading state to prevent multiple simultaneous uploads
+  const [uploading, setUploading] = useState(false);
+  
+  /**
+   * Handle file selection and validation
+   * Validates file types, sizes, and count before upload
+   * 
+   * @param {Event} e - File input change event
+   */
+  const handleFileUpload = async (e) => {
+    // Convert FileList to array for easier manipulation
+    const selectedFiles = Array.from(e.target.files);
+    
+    // Apply validation filters - only keep valid files
+    const validFiles = selectedFiles.filter(f => 
+      f.size < 50 * 1024 * 1024 &&  // 50MB size limit
+      (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))  // Excel formats only
+    );
+    
+    // Notify user if some files were rejected
+    if (validFiles.length !== selectedFiles.length) {
+      alert('Some files were rejected: check size (<50MB) and format (.xlsx/.xls)');
+    }
+    
+    // Enforce maximum file count
+    if (validFiles.length > 5) {
+      alert('Maximum 5 files allowed');
+      return;
+    }
+
+    // Update state with validated files
+    setFiles(validFiles);
+    
+    // Set loading state to prevent duplicate uploads
+    setUploading(true);
+    
+    try {
+      // Call upload API and notify parent component
+      const result = await uploadFiles(validFiles);
+      onFilesUploaded(result);
+    } catch (error) {
+      // Provide user-friendly error message
+      alert('Upload failed: ' + error.message);
+    } finally {
+      // Always clear loading state
+      setUploading(false);
+    }
+  };
+
+  return (
+    // Tailwind classes for drag-and-drop visual styling
+    <div className="p-6 border-2 border-dashed border-gray-300 rounded-lg">
+      {/* Hidden file input - styled through label */}
+      <input 
+        type="file" 
+        multiple 
+        accept=".xlsx,.xls"  // Browser-level file type filtering
+        onChange={handleFileUpload}
+        className="hidden"
+        id="file-upload"
+      />
+      
+      {/* Clickable label that triggers file selection */}
+      <label 
+        htmlFor="file-upload" 
+        className="cursor-pointer block text-center p-4 bg-blue-500 text-white rounded hover:bg-blue-600"
+      >
+        {/* Dynamic button text based on upload state */}
+        {uploading ? 'Uploading...' : 'Select Excel Files (Max 5, <50MB each)'}
+      </label>
+      
+      {/* Display selected files list when files are chosen */}
+      {files.length > 0 && (
+        <ul className="mt-4">
+          {files.map(f => (
+            // Show checkmark and filename for each valid file
+            <li key={f.name} className="text-sm text-gray-600">✓ {f.name}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+export default FileUploader;
+```
+
+### State Management Rules
+```javascript
+/**
+ * State Management Best Practices for Excel Reporting POC
+ * 
+ * Use React's built-in hooks for simple state management:
+ * - useState for component-level state
+ * - useEffect for side effects and data fetching
+ * - Props down, callbacks up for parent-child communication
+ * - NO complex state libraries (Redux, Zustand) for this POC
+ */
+
+// ✅ GOOD: Simple state with clear naming
+const [uploadedFiles, setUploadedFiles] = useState([]); // Files from upload
+const [analysisResults, setAnalysisResults] = useState(null); // Agent analysis data
+const [currentPhase, setCurrentPhase] = useState('upload'); // Workflow progress
+
+// ✅ GOOD: Error and loading states for better UX
+const [isLoading, setIsLoading] = useState(false);
+const [errorMessage, setErrorMessage] = useState('');
+```
+
+### Tailwind CSS Guidelines
+```javascript
+/**
+ * Tailwind CSS Standards for Consistent Styling
+ * 
+ * Key principles:
+ * - Agent chat panel MUST be 60% width (w-3/5)
+ * - Use utility-first approach with semantic grouping
+ * - Responsive design with mobile-first breakpoints
+ * - Consistent spacing scale (4, 6, 8, 12, 16, 24)
+ */
+
+// ✅ GOOD: Agent panel with proper proportions and styling
+<div className="flex h-screen bg-gray-50">
+  {/* Main content area - 40% width */}
+  <div className="w-2/5 bg-white shadow-sm overflow-y-auto">
+    {/* Content goes here */}
+  </div>
+  
+  {/* Agent chat panel - 60% width (REQUIRED) */}
+  <div className="w-3/5 border-l border-gray-200 bg-white">
+    {/* Large real estate for agent conversations */}
+  </div>
+</div>
+```
+
+## PYTHON/FASTAPI BEST PRACTICES
+
+### Code Structure with Comprehensive Comments
+```python
+# ✅ GOOD: Well-documented FastAPI endpoint with type hints
+from typing import List, Dict, Optional, Any
+from fastapi import FastAPI, UploadFile, HTTPException, File
+from pydantic import BaseModel, Field
+import logging
+
+# Configure logging for better debugging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class FileAnalysisRequest(BaseModel):
+    """
+    Pydantic model for file analysis request validation
+    
+    This model ensures that all file analysis requests contain
+    the required fields and pass validation before processing.
+    """
+    filename: str = Field(..., description="Name of the Excel file being analyzed")
+    user_input: str = Field(..., min_length=3, max_length=1000, 
+                           description="User's description of the file's purpose")
+    file_metadata: Dict[str, Any] = Field(..., description="Extracted file metadata from pandas")
+
+class FileAnalysisResponse(BaseModel):
+    """
+    Standardized response format for file analysis results
+    
+    Provides consistent API responses with success indicators
+    and structured data for frontend consumption.
+    """
+    success: bool = Field(..., description="Whether analysis completed successfully")
+    analysis: Optional[Dict[str, Any]] = Field(None, description="Analysis results if successful")
+    error_message: Optional[str] = Field(None, description="Error details if failed")
+    next_file: Optional[str] = Field(None, description="Next file to analyze, if any")
+
+@app.post("/analyze-file", response_model=FileAnalysisResponse)
+async def analyze_file(request: FileAnalysisRequest):
+    """
+    Analyze a single Excel file using AutoGen agents
+    
+    This endpoint processes one file at a time through the agent workflow:
+    1. Validate the request data
+    2. Create specialized AutoGen agents
+    3. Run conversational analysis
+    4. Extract structured results
+    5. Return formatted response
+    
+    Args:
+        request (FileAnalysisRequest): Validated request with file info and user input
+        
+    Returns:
+        FileAnalysisResponse: Structured analysis results or error information
+        
+    Raises:
+        HTTPException: 400 for validation errors, 500 for processing errors
+        
+    Example:
+        POST /analyze-file
+        {
+            "filename": "inventory_jan2025.xlsx",
+            "user_input": "This file contains monthly inventory data",
+            "file_metadata": {"fields": ["Company Code", "Cost"], "types": {...}}
+        }
+    """
+    try:
+        # Log the analysis request for debugging
+        logger.info(f"Starting analysis for file: {request.filename}")
+        
+        # Import agent creation function (lazy import for performance)
+        from agents.file_analyzer import run_file_analysis
+        
+        # Run the agent-based analysis with error handling
+        analysis_result = await run_file_analysis(
+            file_metadata=request.file_metadata,
+            user_input=request.user_input
+        )
+        
+        # Check if analysis was successful
+        if analysis_result.get("success"):
+            logger.info(f"Analysis completed successfully for {request.filename}")
+            return FileAnalysisResponse(
+                success=True,
+                analysis=analysis_result["analysis"],
+                next_file=analysis_result.get("next_file")  # For multi-file workflow
+            )
+        else:
+            # Analysis failed but didn't throw exception
+            logger.warning(f"Analysis failed for {request.filename}: {analysis_result.get('error')}")
+            return FileAnalysisResponse(
+                success=False,
+                error_message=analysis_result.get("error", "Unknown analysis error")
+            )
+            
+    except ValueError as e:
+        # Handle validation or input errors
+        logger.error(f"Validation error in analyze_file: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Invalid input: {str(e)}")
+        
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Unexpected error in analyze_file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Analysis processing failed")
+```
+
+### File Organization Standards
+```python
+"""
+File Organization Best Practices
+
+Each Python file should have:
+1. Clear docstring explaining purpose
+2. Organized imports (standard lib, third-party, local)
+3. Single responsibility principle
+4. Comprehensive error handling
+5. 30% comment ratio minimum
+
+Example file structure:
+"""
+
+# Standard library imports
+import os
+import json
+import logging
+from typing import List, Dict, Optional
+
+# Third-party imports
+import pandas as pd
+from fastapi import HTTPException
+
+# Local application imports
+from .sqlite_manager import create_memory_database
+from .excel_processor import extract_file_metadata
+
+# Configure module-level logging
+logger = logging.getLogger(__name__)
+
+def process_excel_file(file_path: str) -> Dict[str, Any]:
+    """
+    Process a single Excel file and extract metadata
+    
+    This function handles the complete Excel file processing pipeline:
+    - File validation and security checks
+    - Metadata extraction using pandas
+    - Error handling and logging
+    - Structured data return
+    
+    Args:
+        file_path (str): Path to the Excel file to process
+        
+    Returns:
+        Dict[str, Any]: Structured metadata including sheets, fields, and types
+        
+    Raises:
+        ValueError: If file is invalid or corrupted
+        FileNotFoundError: If file path doesn't exist
+        
+    Example:
+        metadata = process_excel_file("inventory.xlsx")
+        # Returns: {"sheets": {"Sheet1": {"fields": [...], "types": {...}}}}
+    """
+    # Validate file exists before processing
+    if not os.path.exists(file_path):
+        logger.error(f"File not found: {file_path}")
+        raise FileNotFoundError(f"Excel file not found: {file_path}")
+    
+    try:
+        # Extract metadata using pandas - main processing logic
+        metadata = extract_file_metadata(file_path)
+        
+        # Log successful processing
+        logger.info(f"Successfully processed Excel file: {file_path}")
+        
+        return metadata
+        
+    except Exception as e:
+        # Log and re-raise processing errors
+        logger.error(f"Failed to process Excel file {file_path}: {str(e)}")
+        raise ValueError(f"Excel processing failed: {str(e)}")
+```
+
+## SQLITE BEST PRACTICES
+
+### Database Operations with Comprehensive Documentation
+```python
+"""
+SQLite Database Management for Excel Reporting POC
+
+This module handles all SQLite operations for the temporary data modeling:
+- In-memory database creation for session-based processing
+- DataFrame to table conversion with error handling
+- Query execution with security measures
+- Connection lifecycle management
+
+Key principles:
+- Use in-memory databases (:memory:) for temporary processing
+- Implement proper connection cleanup
+- Validate all dynamic SQL to prevent injection
+- Handle large datasets efficiently
+"""
+
+import sqlite3
+import pandas as pd
+import re
+from typing import List, Dict, Tuple, Optional, Any
+import logging
+
+# Configure logging for database operations
+logger = logging.getLogger(__name__)
+
+def create_memory_database() -> sqlite3.Connection:
+    """
+    Create an in-memory SQLite database for session processing
+    
+    Creates a temporary SQLite database that exists only for the duration
+    of the user session. All data is lost when the connection is closed,
+    which is perfect for our POC requirements.
+    
+    Returns:
+        sqlite3.Connection: Active database connection
+        
+    Example:
+        conn = create_memory_database()
+        # Use connection for temporary data storage
+        conn.close()  # Always close when done
+    """
+    try:
+        # Create in-memory database connection
+        conn = sqlite3.connect(':memory:')
+        
+        # Enable foreign key constraints for data integrity
+        conn.execute("PRAGMA foreign_keys = ON")
+        
+        # Set connection to return rows as dictionaries for easier handling
+        conn.row_factory = sqlite3.Row
+        
+        logger.info("Created in-memory SQLite database")
+        return conn
+        
+    except sqlite3.Error as e:
+        logger.error(f"Failed to create SQLite database: {str(e)}")
+        raise RuntimeError(f"Database creation failed: {str(e)}")
+
+def dataframe_to_table(conn: sqlite3.Connection, df: pd.DataFrame, 
+                      table_name: str, if_exists: str = 'replace') -> bool:
+    """
+    Convert pandas DataFrame to SQLite table with comprehensive error handling
+    
+    This function safely converts a pandas DataFrame to a SQLite table,
+    handling data type conversion, column naming, and potential conflicts.
+    
+    Args:
+        conn (sqlite3.Connection): Active database connection
+        df (pd.DataFrame): Source DataFrame to convert
+        table_name (str): Name for the new table (will be validated)
+        if_exists (str): Action if table exists ('fail', 'replace', 'append')
+        
+    Returns:
+        bool: True if conversion successful, False otherwise
+        
+    Example:
+        success = dataframe_to_table(conn, inventory_df, "inventory_data")
+        if success:
+            print("Table created successfully")
+    """
+    try:
+        # Validate table name to prevent SQL injection
+        if not _is_valid_table_name(table_name):
+            logger.error(f"Invalid table name: {table_name}")
+            return False
+            
+        # Check if DataFrame is empty
+        if df.empty:
+            logger.warning(f"DataFrame is empty for table {table_name}")
+            return False
+            
+        # Clean column names to be SQL-safe
+        df_clean = df.copy()
+        df_clean.columns = [_sanitize_column_name(col) for col in df.columns]
+        
+        # Convert DataFrame to SQLite table
+        # index=False prevents pandas from creating an index column
+        df_clean.to_sql(
+            name=table_name,
+            con=conn,
+            if_exists=if_exists,
+            index=False,
+            method='multi'  # Faster bulk insert for large datasets
+        )
+        
+        # Log successful conversion with table statistics
+        row_count = len(df_clean)
+        col_count = len(df_clean.columns)
+        logger.info(f"Created table '{table_name}' with {row_count} rows, {col_count} columns")
+        
+        return True
+        
+    except sqlite3.Error as e:
+        logger.error(f"SQLite error creating table {table_name}: {str(e)}")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Unexpected error creating table {table_name}: {str(e)}")
+        return False
+
+def _is_valid_table_name(name: str) -> bool:
+    """
+    Validate table name to prevent SQL injection attacks
+    
+    Ensures table names contain only safe characters:
+    - Letters, numbers, underscores
+    - Must start with letter or underscore
+    - No SQL keywords or special characters
+    
+    Args:
+        name (str): Table name to validate
+        
+    Returns:
+        bool: True if name is safe, False otherwise
+    """
+    # Check basic format: alphanumeric + underscore, starting with letter/underscore
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
+        return False
+        
+    # Reject SQL keywords that could cause issues
+    sql_keywords = {'select', 'insert', 'delete', 'update', 'drop', 'create', 
+                   'alter', 'table', 'index', 'view', 'database', 'schema'}
+    
+    if name.lower() in sql_keywords:
+        return False
+        
+    # Limit length to prevent issues
+    if len(name) > 64:
+        return False
+        
+    return True
+
+def _sanitize_column_name(name: str) -> str:
+    """
+    Sanitize column names for SQLite compatibility
+    
+    Excel column names can contain spaces, special characters, and
+    other elements that cause SQL issues. This function creates
+    safe column names while maintaining readability.
+    
+    Args:
+        name (str): Original column name from Excel
+        
+    Returns:
+        str: Sanitized column name safe for SQL
+    """
+    # Replace spaces and special chars with underscores
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', str(name))
+    
+    # Ensure starts with letter or underscore
+    if sanitized and sanitized[0].isdigit():
+        sanitized = 'col_' + sanitized
+        
+    # Handle empty names
+    if not sanitized:
+        sanitized = 'unnamed_column'
+        
+    # Limit length and remove double underscores
+    sanitized = re.sub(r'_+', '_', sanitized)[:64]
+    
+    return sanitized.strip('_')
+```
+
+## MICROSOFT AUTOGEN EXPERT PATTERNS
+
+### Agent Creation with Extensive Documentation
+```python
+"""
+Microsoft AutoGen Agent Patterns for Excel Analysis
+
+This module contains all AutoGen agent implementations for the Excel
+reporting POC. Each agent has a specific role in the data analysis workflow:
+
+1. FileAnalyzer - Analyzes individual Excel files
+2. ModelExplainer - Explains data relationships to users  
+3. QueryAssistant - Helps build SQL queries
+
+Key AutoGen concepts for beginners:
+- AssistantAgent: AI-powered agent that processes information
+- UserProxyAgent: Represents the user in conversations
+- GroupChat: Coordinates multiple agents
+- System Messages: Define agent behavior and expertise
+"""
+
+from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager
+import os
+import json
+import logging
+from typing import Dict, List, Optional, Any
+
+# Configure logging for agent operations
+logger = logging.getLogger(__name__)
+
+def create_file_analyzer_agent() -> AssistantAgent:
+    """
+    Create specialized AutoGen agent for Excel file analysis
+    
+    This agent is designed to analyze Excel files one at a time and guide
+    non-technical users through data modeling decisions. It focuses on:
+    - Understanding file purpose and content
+    - Identifying key reporting fields (metrics)
+    - Finding join fields for relationships
+    - Outputting structured JSON results
+    
+    Returns:
+        AssistantAgent: Configured agent ready for file analysis
+        
+    Example Usage:
+        analyzer = create_file_analyzer_agent()
+        result = await run_agent_conversation(analyzer, file_data, user_input)
+    """
+    
+    # Configuration for cost-optimized ChatGPT-4 usage
+    config_list = [{
+        "model": "gpt-4",  # NOT gpt-4o - cost optimization for POC
+        "api_key": os.environ["OPENAI_API_KEY"],
+        "max_tokens": 500,  # Keep responses concise to control costs
+        "temperature": 0.1,  # Low temperature for consistent, deterministic responses
+        "timeout": 30,  # Prevent hanging requests
+        "request_timeout": 60  # Total request timeout
+    }]
+    
+    # Detailed system message defines agent's expertise and behavior
+    system_message = """You are an Excel data analysis specialist helping non-technical users.
+
+YOUR ROLE:
+- Analyze ONE Excel file at a time (never multiple simultaneously)
+- Guide users through data modeling with simple questions
+- Identify field roles and relationships in conversational manner
+- Output structured JSON for downstream processing
+
+WORKFLOW FOR EACH FILE:
+1. Ask user what the file represents (e.g., "inventory data", "sales records")
+2. Identify key reporting fields - metrics like Cost, Quantity, Revenue, Sales
+3. Identify join fields - keys that link to other files like Company Code, Product ID
+4. Confirm understanding before moving to next file
+
+RESPONSE FORMAT:
+Always end responses with structured JSON like this:
+{
+  "file_purpose": "Monthly inventory tracking",
+  "fields": {
+    "Company Code": {"type": "string", "role": "join_field", "description": "Links to other company data"},
+    "Product Cost": {"type": "float", "role": "reporting_field", "description": "Key metric for cost analysis"},  
+    "Quantity": {"type": "integer", "role": "reporting_field", "description": "Inventory count"}
+  },
+  "analysis_complete": true
+}
+
+COMMUNICATION STYLE:
+- Be conversational and encouraging
+- Use simple language, avoid technical jargon
+- Ask one question at a time to avoid overwhelming users
+- Provide examples when suggesting field roles
+- Confirm understanding before proceeding
+
+IMPORTANT CONSTRAINTS:
+- Only analyze the current file, don't jump to other files
+- Keep responses under 200 words for readability
+- Always include the JSON output structure
+- If user gives vague answers, ask clarifying questions"""
+
+    # Create the AssistantAgent with configuration
+    return AssistantAgent(
+        name="FileAnalyzer",  # Clear name for debugging and logs
+        llm_config={"config_list": config_list},  # ChatGPT-4 configuration
+        system_message=system_message,  # Detailed behavior instructions
+        human_input_mode="NEVER",  # Automated for POC - no human intervention
+        max_consecutive_auto_reply=3,  # Prevent infinite conversations
+        code_execution_config=False  # No code execution needed for this agent
+    )
+
+def create_user_proxy_agent() -> UserProxyAgent:
+    """
+    Create UserProxyAgent to represent the user in AutoGen conversations
+    
+    The UserProxyAgent acts as the "human" side of the conversation,
+    forwarding user inputs to the AI agents and managing the conversation flow.
+    For this POC, it's configured for automated operation.
+    
+    Returns:
+        UserProxyAgent: Configured proxy for user interactions
+        
+    Note:
+        In production, you might set human_input_mode="ALWAYS" to allow
+        real human intervention in the conversation flow.
+    """
+    return UserProxyAgent(
+        name="User",  # Represents the actual user
+        human_input_mode="NEVER",  # Automated for POC - uses provided input
+        max_consecutive_auto_reply=5,  # Limit conversation length
+        is_termination_msg=lambda x: "analysis_complete" in x.get("content", ""),  # Stop condition
+        code_execution_config=False,  # No code execution needed
+        system_message="You are representing a non-technical user analyzing Excel files."
+    )
+
+async def run_file_analysis(file_metadata: Dict[str, Any], user_input: str) -> Dict[str, Any]:
+    """
+    Execute agent-based file analysis with comprehensive error handling
+    
+    This is the main entry point for running AutoGen conversations for file analysis.
+    It orchestrates the conversation between the FileAnalyzer agent and UserProxy.
+    
+    Args:
+        file_metadata (Dict[str, Any]): Excel file metadata from pandas
+        user_input (str): User's description of the file's purpose
+        
+    Returns:
+        Dict[str, Any]: Analysis results with success indicator and data
+        
+    Example:
+        result = await run_file_analysis(
+            file_metadata={
+                "filename": "inventory.xlsx",
+                "fields": ["Company Code", "Cost", "Quantity"],
+                "types": {"Company Code": "object", "Cost": "float64"}
+            },
+            user_input="This file contains monthly inventory data"
+        )
+    """
+    try:
+        # Create agent instances for this conversation
+        analyzer = create_file_analyzer_agent()
+        user_proxy = create_user_proxy_agent()
+        
+        # Prepare conversation context with file information
+        conversation_starter = f"""
+        ANALYSIS REQUEST:
+        File: {file_metadata.get('filename', 'Unknown')}
+        Fields found: {', '.join(file_metadata.get('fields', []))}
+        Data types: {file_metadata.get('types', {})}
+        
+        User description: {user_input}
+        
+        Please analyze this Excel file. Ask me clarifying questions about the file's purpose
+        and help me identify which fields are for reporting (metrics) and which are for 
+        joining with other files (keys).
+        """
+        
+        logger.info(f"Starting agent analysis for file: {file_metadata.get('filename')}")
+        
+        # Initiate the AutoGen conversation
+        # This starts the back-and-forth between agents
+        user_proxy.initiate_chat(
+            analyzer,
+            message=conversation_starter,
+            max_turns=5  # Limit conversation length to control costs
+        )
+        
+        # Extract the final response from the conversation
+        # AutoGen stores all messages in chat_messages dictionary
+        conversation_messages = user_proxy.chat_messages[analyzer]
+        
+        if not conversation_messages:
+            logger.error("No conversation messages generated")
+            return {"success": False, "error": "Agent conversation failed to start"}
+            
+        # Get the last message from the agent
+        last_agent_message = conversation_messages[-1]["content"]
+        
+        logger.info(f"Agent conversation completed. Message count: {len(conversation_messages)}")
+        
+        # Attempt to extract JSON from the agent's response
+        analysis_result = _extract_json_from_response(last_agent_message)
+        
+        if analysis_result:
+            logger.info("Successfully extracted structured analysis from agent response")
+            return {
+                "success": True,
+                "analysis": analysis_result,
+                "conversation_summary": last_agent_message,
+                "message_count": len(conversation_messages)
+            }
+        else:
+            # If JSON extraction fails, return the raw response
+            logger.warning("Could not extract JSON from agent response, returning raw text")
+            return {
+                "success": True,
+                "analysis": {"raw_response": last_agent_message},
+                "conversation_summary": last_agent_message,
+                "requires_manual_review": True
+            }
+            
+    except Exception as e:
+        # Comprehensive error handling for agent failures
+        logger.error(f"Agent conversation failed: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Agent analysis failed: {str(e)}",
+            "error_type": type(e).__name__
+        }
+
+def _extract_json_from_response(response_text: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract JSON data from agent response text
+    
+    AutoGen agents often embed JSON in their text responses. This function
+    attempts to find and parse valid JSON from the response.
+    
+    Args:
+        response_text (str): Raw response text from agent
+        
+    Returns:
+        Optional[Dict[str, Any]]: Parsed JSON data or None if not found
+    """
+    try:
+        # Look for JSON blocks in the response
+        # Agent responses often contain JSON wrapped in markdown code blocks
+        import re
+        
+        # Try to find JSON in code blocks first
+        json_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+        json_matches = re.findall(json_pattern, response_text, re.DOTALL)
+        
+        for match in json_matches:
+            try:
+                return json.loads(match.strip())
+            except json.JSONDecodeError:
+                continue
+                
+        # If no code blocks, look for standalone JSON
+        # Find content between { and } braces
+        brace_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        brace_matches = re.findall(brace_pattern, response_text)
+        
+        for match in brace_matches:
+            try:
+                return json.loads(match)
+            except json.JSONDecodeError:
+                continue
+                
+        # No valid JSON found
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error extracting JSON from response: {str(e)}")
+        return None
+```
+
+## ERROR HANDLING STANDARDS
+
+### Comprehensive Error Management
+```python
+"""
+Error Handling Best Practices for Excel Reporting POC
+
+This module defines standard error handling patterns used throughout
+the application. Consistent error handling improves debugging and
+provides better user experience.
+"""
+
+import logging
+from typing import Dict, Any, Optional
+from fastapi import HTTPException
+import traceback
+
+# Configure application-wide logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('excel_reporting.log'),
+        logging.StreamHandler()
+    ]
+)
+
+class ExcelProcessingError(Exception):
+    """
+    Custom exception for Excel processing errors
+    
+    Used when Excel file processing fails due to:
+    - Corrupted files
+    - Unsupported formats
+    - Missing data
+    - Memory issues
+    """
+    def __init__(self, message: str, filename: Optional[str] = None):
+        self.filename = filename
+        super().__init__(message)
+
+class AgentConversationError(Exception):
+    """
+    Custom exception for AutoGen agent conversation failures
+    
+    Used when agent conversations fail due to:
+    - API timeouts

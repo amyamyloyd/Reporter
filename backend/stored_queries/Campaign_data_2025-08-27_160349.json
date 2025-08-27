@@ -1,0 +1,45 @@
+{
+  "filename": "Campaign_data_2025-08-27_160349.xlsx",
+  "original_filename": "Campaign_data.xlsx",
+  "uploaded_at": "2025-08-27T16:03:49.258574",
+  "file_size_bytes": 15528,
+  "file_size_mb": 0.01,
+  "fields": [
+    "Campaign Name",
+    "Supplier",
+    "Units",
+    "Cost ",
+    "Rates",
+    "Total "
+  ],
+  "record_count": 4,
+  "data_types": {
+    "Campaign Name": "object",
+    "Supplier": "object",
+    "Units": "int64",
+    "Cost ": "float64",
+    "Rates": "float64",
+    "Total ": "float64"
+  },
+  "user_description": "this file captures all of our campaigns we are running - it is kept up-to-date daily",
+  "reuse_regularly": false,
+  "process_name": "",
+  "conversation_history": [
+    {
+      "step": 1,
+      "question": "Per my analysis, this file includes Campaign Name, Supplier, Units, Cost , Rates, Total  with 4 records. Is that correct?",
+      "user_response": "yes",
+      "timestamp": "2025-08-27T16:03:54.513313"
+    },
+    {
+      "step": 2,
+      "question": "Please provide a brief description of this document and its purpose",
+      "user_response": "this file captures all of our campaigns we are running - it is kept up-to-date daily ",
+      "timestamp": "2025-08-27T16:04:23.906572"
+    }
+  ],
+  "analysis_complete": false,
+  "file_path": "stored_queries/files/Campaign_data_2025-08-27_160349.xlsx",
+  "json_path": "stored_queries/Campaign_data_2025-08-27_160349.json",
+  "user_confirmation": true
+}

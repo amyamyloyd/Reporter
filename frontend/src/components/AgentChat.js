@@ -1,6 +1,6 @@
 /**
  * AgentChat Component - Phase 2A
- * Handles AI agent conversations for file analysis
+ * Handles AI agent conversations for file analysis using new ChatAgent endpoint
  */
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
@@ -21,6 +21,12 @@ function AgentChat({ files, onAnalysisComplete }) {
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [analysisResults, setAnalysisResults] = useState({});
   const [error, setError] = useState('');
+  
+  // New ChatAgent conversation state
+  const [conversationStep, setConversationStep] = useState(0);
+  const [conversationStatus, setConversationStatus] = useState('idle');
+  const [currentJsonFile, setCurrentJsonFile] = useState('');
+  const [currentQuestion, setCurrentQuestion] = useState('');
 
   // Initialize conversation when files are available
   useEffect(() => {
@@ -30,13 +36,11 @@ function AgentChat({ files, onAnalysisComplete }) {
       setMessages([]);
       setAnalysisResults({});
       
-      // Add initial system message
-      const initialMessage = {
-        role: 'system',
-        content: `Ready to analyze ${files.length} file(s). Starting with: ${files[0].name}`,
-        timestamp: new Date()
-      };
-      setMessages([initialMessage]);
+      // Start with empty messages
+      setMessages([]);
+      
+      // Start ChatAgent conversation for the first file
+      startChatAgentConversation();
     } else {
       // Handle case where files is not an array or is empty
       setMessages([{
@@ -48,7 +52,78 @@ function AgentChat({ files, onAnalysisComplete }) {
   }, [files]);
 
   /**
-   * Send message to agent and handle response
+   * Start ChatAgent conversation for the current file
+   */
+  const startChatAgentConversation = async () => {
+    if (!files || !Array.isArray(files) || files.length === 0 || analyzing) return;
+    
+    setAnalyzing(true);
+    setError('');
+    
+    try {
+      console.log('Starting ChatAgent conversation for:', files[currentFileIndex].name);
+      
+      // Get the JSON filename from the file data
+      const jsonFile = files[currentFileIndex].json_filename;
+      
+      if (!jsonFile) {
+        throw new Error(`No JSON filename found for ${files[currentFileIndex].name}`);
+      }
+      
+      setCurrentJsonFile(jsonFile);
+      
+      // Start conversation with step 0
+      const response = await apiClient.post('/chat-agent', {
+        json_filename: jsonFile,
+        conversation_step: 0,
+        user_response: ''
+      });
+      
+      if (response.data.success) {
+        console.log('ChatAgent response:', response.data);
+        
+        // Update conversation state
+        setConversationStatus(response.data.conversation_status);
+        setConversationStep(response.data.next_step === 'complete' ? 3 : response.data.next_step);
+        setCurrentQuestion(response.data.current_question);
+        
+        // Add agent's first question to chat
+        const agentMessage = {
+          role: 'agent',
+          content: response.data.current_question,
+          timestamp: new Date().toISOString()
+        };
+        
+        setMessages(prev => [...prev, agentMessage]);
+        
+        // Store the JSON data for reference
+        setAnalysisResults(prev => ({
+          ...prev, 
+          [files[currentFileIndex].name]: {
+            json_data: response.data.json_data,
+            conversation_status: response.data.conversation_status
+          }
+        }));
+        
+      } else {
+        throw new Error(response.data.error || 'Failed to start conversation');
+      }
+      
+    } catch (error) {
+      console.error('ChatAgent conversation failed:', error);
+      setError(`ChatAgent failed: ${error.message}`);
+      
+      // Set error state for display
+      setError(`ChatAgent failed: ${error.message}`);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+  
+
+
+  /**
+   * Send message to ChatAgent and handle response
    */
   const sendMessage = async () => {
     if (!currentInput.trim() || analyzing || !files || !Array.isArray(files) || files.length === 0) return;
@@ -65,36 +140,36 @@ function AgentChat({ files, onAnalysisComplete }) {
     setError('');
     
     try {
-      // Call backend analysis endpoint
-      const response = await apiClient.post('/analyze-file', {
-        file_info: {
-          filename: files[currentFileIndex].name,
-          fields: files[currentFileIndex].fields || [],
-          sheets: files[currentFileIndex].sheets || []
-        },
-        user_input: currentInput,
-        conversation_history: messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }))
+      // Call ChatAgent endpoint with current step and user response
+      const response = await apiClient.post('/chat-agent', {
+        json_filename: currentJsonFile,
+        conversation_step: conversationStep,
+        user_response: currentInput
       });
       
       if (response.data.success) {
-        // Add agent response to chat
+        console.log('ChatAgent response:', response.data);
+        
+        // Update conversation state
+        setConversationStatus(response.data.conversation_status);
+        setConversationStep(response.data.next_step === 'complete' ? 3 : response.data.next_step);
+        setCurrentQuestion(response.data.current_question);
+        
+        // Add agent's next question to chat
         const agentMessage = {
           role: 'agent',
-          content: response.data.response || response.data.analysis?.raw_response || 'Analysis completed',
+          content: response.data.current_question,
           timestamp: new Date().toISOString()
         };
         
         setMessages(prev => [...prev, agentMessage]);
         
-        // Check if current file analysis is complete
-        if (response.data.file_complete || response.data.analysis) {
+        // Check if conversation is complete
+        if (response.data.conversation_status === 'completed') {
           // Store analysis result
           const result = {
             filename: files[currentFileIndex].name,
-            analysis: response.data.analysis || response.data.response,
+            json_data: response.data.json_data,
             completed: true
           };
           
@@ -105,22 +180,12 @@ function AgentChat({ files, onAnalysisComplete }) {
             const nextIndex = currentFileIndex + 1;
             setCurrentFileIndex(nextIndex);
             
-                         // Add system message for next file
-             const nextFileMessage = {
-               role: 'system',
-               content: `Moving to next file: ${files[nextIndex].name} (${nextIndex + 1}/${files.length})`,
-               timestamp: new Date().toISOString()
-             };
-            setMessages(prev => [...prev, nextFileMessage]);
+
             
+            // Start conversation for next file
+            setTimeout(() => startChatAgentConversation(), 1000);
           } else {
-            // All files analyzed
-            const completionMessage = {
-              role: 'system',
-              content: 'All files have been analyzed! Review the results below.',
-              timestamp: new Date().toISOString()
-            };
-            setMessages(prev => [...prev, completionMessage]);
+
             
             // Notify parent component
             onAnalysisComplete({
@@ -132,29 +197,14 @@ function AgentChat({ files, onAnalysisComplete }) {
         }
         
       } else {
-        // Handle analysis failure
-        setError(response.data.error || 'Analysis failed');
-        const errorMessage = {
-          role: 'system',
-          content: `Error: ${response.data.error || 'Analysis failed'}`,
-          timestamp: new Date().toISOString(),
-          isError: true
-        };
-        setMessages(prev => [...prev, errorMessage]);
+        // Handle conversation failure
+        setError(response.data.error || 'Conversation failed');
       }
       
     } catch (error) {
-      console.error('Analysis request failed:', error);
+      console.error('ChatAgent request failed:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Request failed';
       setError(errorMessage);
-      
-      const systemError = {
-        role: 'system',
-        content: `Error: ${errorMessage}`,
-        timestamp: new Date().toISOString(),
-        isError: true
-      };
-      setMessages(prev => [...prev, systemError]);
       
     } finally {
       setAnalyzing(false);
@@ -178,13 +228,12 @@ function AgentChat({ files, onAnalysisComplete }) {
   const resetCurrentFile = () => {
     if (!files || !Array.isArray(files) || files.length === 0) return;
     
-    setMessages([{
-      role: 'system',
-      content: `Restarted analysis for: ${files[currentFileIndex].name}`,
-      timestamp: new Date().toISOString()
-    }]);
+    setMessages([]);
     setCurrentInput('');
     setError('');
+    setConversationStep(0);
+    setConversationStatus('idle');
+    startChatAgentConversation();
   };
 
   // Don't render if no files
@@ -242,6 +291,8 @@ function AgentChat({ files, onAnalysisComplete }) {
         </div>
       </div>
       
+
+      
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, index) => (
@@ -275,23 +326,7 @@ function AgentChat({ files, onAnalysisComplete }) {
           </div>
         ))}
         
-        {/* Analysis results summary */}
-        {Object.values(analysisResults).length > 0 && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <h3 className="font-semibold text-green-800 mb-2">
-              Analysis Progress
-            </h3>
-            <div className="space-y-2">
-              {Object.values(analysisResults).map((result, index) => (
-                <div key={index} className="flex items-center space-x-2 text-sm">
-                  <span className="text-green-500">✓</span>
-                  <span className="text-green-700">{result.filename}</span>
-                  <span className="text-green-600">- Completed</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+
       </div>
       
       {/* Error display */}
@@ -312,7 +347,9 @@ function AgentChat({ files, onAnalysisComplete }) {
             value={currentInput}
             onChange={e => setCurrentInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Describe this file or answer the agent's question..."
+            placeholder={conversationStep === 1 ? "Type 'yes' to confirm the fields..." : 
+                        conversationStep === 2 ? "Describe the document's purpose..." : 
+                        "Type your response..."}
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={analyzing}
           />
@@ -324,9 +361,11 @@ function AgentChat({ files, onAnalysisComplete }) {
             {analyzing ? (
               <div className="flex items-center space-x-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                <span>Analyzing...</span>
+                <span>Processing...</span>
               </div>
             ) : (
+              conversationStep === 1 ? 'Confirm' : 
+              conversationStep === 2 ? 'Describe' : 
               'Send'
             )}
           </button>

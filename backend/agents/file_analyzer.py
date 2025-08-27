@@ -1,16 +1,23 @@
 """
 AutoGen File Analyzer Agent for Excel file analysis
 Phase 2A: File Upload & Analysis
-Compatible with pyautogen 0.1.14
+Compatible with pyautogen 0.4.0 and openai 1.55.3
 """
 import os
-from typing import Dict, Any, List
-from autogen import AssistantAgent, UserProxyAgent
+import json
 import logging
+from typing import Dict, Any, List
 
 # Configure logging for debugging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Import AutoGen components - pyautogen 0.1.14 structure
+try:
+    from autogen import AssistantAgent, UserProxyAgent
+except ImportError as e:
+    logger.error(f"Failed to import AutoGen components: {e}")
+    raise
 
 def create_file_analyzer():
     """
@@ -20,34 +27,35 @@ def create_file_analyzer():
     Returns:
         AssistantAgent: Configured agent for file analysis
     """
-    # pyautogen 0.1.14 syntax: simpler config structure
+    # AutoGen 0.4.0 syntax: modern config structure
     config_list = [{
-        "model": "gpt-4",
-        "api_key": os.environ.get("OPENAI_API_KEY")
+        "model": "gpt-4o",  # Use GPT-4o for better performance
+        "api_key": os.environ.get("OPENAI_API_KEY"),
+        "timeout": 120  # Increase timeout for complex analysis
     }]
     
     # Clear system message for file analysis
-    system_message = """You are an Excel data analysis specialist. Your job:
+    system_message = """You are an Excel field extractor. Your job is simple:
 
-1. Analyze ONE Excel file at a time
-2. Ask user what the file represents (e.g., "inventory data", "sales records")  
-3. Identify key reporting fields (metrics like Cost, Quantity, Revenue)
-4. Identify join fields that link to other files (like Company Code, Product ID)
-5. Output structured JSON with field roles
+EXTRACT FIELDS ONLY:
+1. List the fields provided to you
+2. Note any obvious patterns (dates, numbers, text)
+3. Output minimal JSON with field names and basic types
 
-Be conversational but focused. Guide non-technical users through data modeling.
-
-Example output format:
+OUTPUT FORMAT:
 {
-  "file_purpose": "Monthly inventory tracking",
-  "fields": {
-    "Company Code": {"type": "string", "role": "join_field"},
-    "Product Cost": {"type": "float", "role": "reporting_field"},  
-    "Quantity": {"type": "integer", "role": "reporting_field"}
-  }
+  "fields_extracted": ["Field1", "Field2", "Field3"],
+  "field_count": 3,
+  "notes": "Brief observation about field types"
 }
 
-Keep responses concise and helpful."""
+RULES:
+- NO deep analysis
+- NO role assignments
+- NO descriptions
+- Just list fields and count them
+- Keep response under 100 words
+- Output ONLY the JSON"""
 
     try:
         # pyautogen 0.1.14 syntax: simpler agent creation
@@ -74,7 +82,8 @@ def create_user_proxy():
         user_proxy = UserProxyAgent(
             name="User",
             human_input_mode="NEVER",
-            max_consecutive_auto_reply=5
+            max_consecutive_auto_reply=5,
+            code_execution_config=False  # Disable code execution for this POC
         )
         logger.info("User proxy agent created successfully")
         return user_proxy
@@ -95,35 +104,65 @@ async def analyze_single_file(file_metadata: Dict[str, Any], user_input: str) ->
         Dict with analysis results or error information
     """
     try:
-        # Create agents for this analysis session
+        # Create fresh agents for this analysis session (no shared state)
         analyzer = create_file_analyzer()
         user_proxy = create_user_proxy()
         
+        # Clear any previous conversation state
+        analyzer.reset()
+        user_proxy.reset()
+        
         # Build conversation starter with context
         conversation_starter = f"""
+        Extract fields from this Excel file:
+
         File: {file_metadata.get('filename', 'Unknown')}
         Fields found: {', '.join(file_metadata.get('fields', []))}
-        User description: {user_input}
         
-        Please analyze this file and identify field roles.
+        List the fields and output JSON format.
         """
         
-        # Initiate chat
+        # Debug: Log what we're sending to the agent
+        logger.info(f"=== DEBUG: Agent conversation starter ===")
+        logger.info(f"File: {file_metadata.get('filename', 'Unknown')}")
+        logger.info(f"Fields: {file_metadata.get('fields', [])}")
+        logger.info(f"User input: {user_input}")
+        logger.info(f"Conversation starter: {conversation_starter}")
+        
+        # Initiate chat - only 1 turn to get analysis and stop
         user_proxy.initiate_chat(
             analyzer,
             message=conversation_starter,
-            max_turns=3
+            max_turns=1
         )
         
-        # Extract the last response from the analyzer
-        if analyzer.chat_messages and user_proxy.name in analyzer.chat_messages:
-            last_message = analyzer.chat_messages[user_proxy.name][-1]["content"]
-        else:
-            # Fallback: try to get from user proxy messages
-            last_message = user_proxy.chat_messages[analyzer][-1]["content"]
+        # Extract the last message from the analyzer
+        # AutoGen 0.4.0: Check both possible message locations using objects, not names
+        messages = None
+        message_source = None
         
+        if analyzer in user_proxy.chat_messages:
+            messages = user_proxy.chat_messages[analyzer]
+            message_source = f"user_proxy.chat_messages[analyzer]"
+        elif user_proxy in analyzer.chat_messages:
+            messages = analyzer.chat_messages[user_proxy]
+            message_source = f"analyzer.chat_messages[user_proxy]"
+        
+        if messages:
+            logger.info(f"Found messages in {message_source}, count: {len(messages)}")
+            last_message = messages[-1]["content"]
+            logger.info(f"Agent response received: {last_message[:200]}...")
+        else:
+            # Debug: Log what we found in both locations
+            logger.error(f"No messages found in either location")
+            logger.error(f"user_proxy.chat_messages keys: {list(user_proxy.chat_messages.keys())}")
+            logger.error(f"analyzer.chat_messages keys: {list(analyzer.chat_messages.keys())}")
+            return {
+                "success": False,
+                "error": "No response from analyzer agent"
+            }
+            
         # Try to parse JSON response
-        import json
         try:
             analysis_result = json.loads(last_message)
             return {

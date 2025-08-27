@@ -93,6 +93,6 @@ def validate_excel_files(files: List[UploadFile]) -> Dict[str, Any]:
                 "errors": file_errors
             })
         else:
-            validation_results["valid_files"].append(file.filename)
+            validation_results["valid_files"].append(file)  # Return the actual file object, not just filename
     
     return validation_results

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from typing import List, Dict, Any
 import os
 import json
@@ -8,7 +9,7 @@ from dotenv import load_dotenv
 
 # Import Phase 1 modules
 from excel_processor import extract_file_metadata, validate_excel_files
-from sqlite_manager import create_memory_database
+from duckdb_manager import create_memory_database
 
 # Import Phase 2A modules
 from agents.file_analyzer import analyze_single_file
@@ -40,6 +41,65 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "environment": os.getenv("ENVIRONMENT", "development")}
+
+@app.get("/check-tables")
+async def check_tables():
+    """Check what tables exist in DuckDB and their structure"""
+    try:
+        conn = create_memory_database()
+        
+        # Get all tables
+        tables_result = conn.execute("SHOW TABLES").fetchall()
+        tables_info = []
+        
+        for table_row in tables_result:
+            table_name = table_row[0]
+            
+            # Get table schema (columns)
+            schema_result = conn.execute(f"DESCRIBE {table_name}").fetchall()
+            columns = []
+            for col in schema_result:
+                columns.append({
+                    "name": col[0],
+                    "type": col[1],
+                    "null": col[2],
+                    "key": col[3],
+                    "default": col[4]
+                })
+            
+            # Get record count
+            count_result = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+            record_count = count_result[0] if count_result else 0
+            
+            # Get sample data (first 3 rows)
+            try:
+                sample_result = conn.execute(f"SELECT * FROM {table_name} LIMIT 3").fetchall()
+                sample_data = [list(row) for row in sample_result]
+            except Exception as e:
+                sample_data = f"Error reading sample: {str(e)}"
+            
+            tables_info.append({
+                "table_name": table_name,
+                "columns": columns,
+                "record_count": record_count,
+                "sample_data": sample_data
+            })
+        
+        conn.close()
+        
+        return {
+            "success": True,
+            "database": "excel_reporting.db",
+            "total_tables": len(tables_info),
+            "tables": tables_info
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to check tables: {str(e)}",
+            "database": "excel_reporting.db"
+        }
 
 @app.post("/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
@@ -90,30 +150,27 @@ async def upload_files(files: List[UploadFile] = File(...)):
             
             # Extract fields from sheets
             all_fields = []
+            normalized_fields = []
             if "sheets" in file_metadata:
                 for sheet_name, sheet_data in file_metadata["sheets"].items():
                     if "fields" in sheet_data:
                         all_fields.extend(sheet_data["fields"])
+                    if "normalized_fields" in sheet_data:
+                        normalized_fields.extend(sheet_data["normalized_fields"])
                 # Remove duplicates while preserving order
                 all_fields = list(dict.fromkeys(all_fields))
+                normalized_fields = list(dict.fromkeys(normalized_fields))
             
             # Create JSON structure
             json_data = {
                 "filename": excel_filename,  # Reference the saved Excel file
-                "original_filename": file.filename,  # Keep original name for reference
-                "uploaded_at": datetime.now().isoformat(),
-                "file_size_bytes": file.size,
-                "file_size_mb": round(file.size / (1024 * 1024), 2),
-                "fields": all_fields,
-                "record_count": file_metadata.get("sheets", {}).get("Sheet1", {}).get("row_count", 0),
-                "data_types": file_metadata.get("sheets", {}).get("Sheet1", {}).get("types", {}),
-                "user_description": "",
-                "reuse_regularly": False,
-                "process_name": "",
-                "conversation_history": [],
-                "analysis_complete": False,
-                "file_path": excel_path,  # Store the path to the saved Excel file
-                "json_path": json_path    # Store the path to the JSON metadata
+                "sheets": file_metadata.get("sheets", {}),
+                "fields": all_fields,  # Original field names for display
+                "normalized_fields": normalized_fields,  # Clean field names for DuckDB
+                "record_count": sum(sheet.get("row_count", 0) for sheet in file_metadata.get("sheets", {}).values()),
+                "upload_timestamp": timestamp,
+                "file_size": file.size,
+                "content_type": file.content_type
             }
             
             # Save JSON file
@@ -122,6 +179,119 @@ async def upload_files(files: List[UploadFile] = File(...)):
             
             print(f"Saved Excel file: {excel_path}")
             print(f"Created JSON file: {json_path}")
+            
+            # NEW: DuckDB Integration - Create table and check document type
+            try:
+                # Load Excel data into pandas DataFrame for DuckDB
+                import pandas as pd
+                df = pd.read_excel(excel_path, engine='openpyxl')
+                
+                # Apply normalized column names for DuckDB compatibility
+                if normalized_fields and len(normalized_fields) == len(df.columns):
+                    df.columns = normalized_fields
+                    print(f"Applied normalized column names for DuckDB compatibility")
+                
+                print(f"Loaded Excel data: {df.shape[0]} rows, {df.shape[1]} columns")
+                
+                # Check document registry for matching field patterns using normalized fields
+                from duckdb_manager import check_document_type_by_fields
+                doc_type_info = check_document_type_by_fields(db_conn, normalized_fields)
+                
+                # Determine document type and table naming
+                if doc_type_info:
+                    # Found matching document type
+                    document_type = doc_type_info["document_type"]
+                    document_type_code = doc_type_info["document_type_code"]
+                    is_current_version = True  # This is the latest version
+                    print(f"Matched existing document type: {document_type}")
+                else:
+                    # New document type
+                    document_type = "New"
+                    document_type_code = "new"
+                    is_current_version = True
+                    print(f"New document type detected - no pattern match found")
+                    
+                    # Step 3: Add new document to registry for future auto-detection
+                    try:
+                        from duckdb_manager import add_new_document_type
+                        registry_updated = add_new_document_type(
+                            db_conn,
+                            "New Document",  # Generic name until user provides specific type
+                            "new",           # Generic code until user provides specific code
+                            normalized_fields,      # Store field pattern for future matching
+                            False,           # reuse_regularly = False initially
+                            "Document type to be determined by user during analysis"
+                        )
+                        
+                        if registry_updated:
+                            print(f"✅ New document added to registry for future auto-detection")
+                        else:
+                            print(f"⚠️  Failed to add new document to registry")
+                            
+                    except Exception as e:
+                        print(f"⚠️  Registry update failed: {e}")
+                        # Continue with upload even if registry update fails
+                
+                # Generate DuckDB table name with proper convention
+                # Format: {type}_{timestamp}_{version}
+                timestamp_short = timestamp.replace('-', '').replace(':', '')
+                duckdb_table_name = f"{document_type_code.lower()}_{timestamp_short}"
+                
+                # Create DuckDB table
+                from duckdb_manager import dataframe_to_table
+                table_created = dataframe_to_table(db_conn, df, duckdb_table_name)
+                
+                if table_created:
+                    print(f"✅ DuckDB table created: {duckdb_table_name}")
+                    
+                    # Extract data version from filename
+                    from duckdb_manager import extract_data_version_from_filename
+                    data_version = extract_data_version_from_filename(excel_filename)
+                    
+                    # Update JSON with DuckDB metadata
+                    json_data.update({
+                        "duckdb_table_name": duckdb_table_name,
+                        "duckdb_loaded": True,
+                        "data_version": data_version,
+                        "document_type": document_type,
+                        "document_type_code": document_type_code,
+                        "is_current_version": is_current_version
+                    })
+                    
+                    # Save updated JSON with DuckDB metadata
+                    with open(json_path, 'w') as f:
+                        json.dump(json_data, f, indent=2)
+                    
+                    print(f"✅ JSON updated with DuckDB metadata")
+                    
+                else:
+                    print(f"❌ Failed to create DuckDB table: {duckdb_table_name}")
+                    # Still update JSON but mark as not loaded
+                    json_data.update({
+                        "duckdb_table_name": None,
+                        "duckdb_loaded": False,
+                        "data_version": None,
+                        "document_type": document_type,
+                        "document_type_code": document_type_code,
+                        "is_current_version": is_current_version
+                    })
+                    
+            except Exception as e:
+                print(f"❌ DuckDB integration failed: {e}")
+                # Update JSON with error state
+                json_data.update({
+                    "duckdb_table_name": None,
+                    "duckdb_loaded": False,
+                    "data_version": None,
+                    "document_type": "New",
+                    "document_type_code": "new",
+                    "is_current_version": True,
+                    "duckdb_error": str(e)
+                })
+                
+                # Save updated JSON even with errors
+                with open(json_path, 'w') as f:
+                    json.dump(json_data, f, indent=2)
         
         # Return files array that frontend expects for AgentChat
         files_data = []

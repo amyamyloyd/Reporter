@@ -3,13 +3,13 @@
 ## High-Level System Description
 Build a web application for non-technical users to upload Excel files, use AI agents to analyze data relationships, and generate formatted Excel reports. The system uses Microsoft AutoGen agents with ChatGPT-4 for conversational data modeling and query building.
 
-**Core Flow**: Upload Excel → Agent File Analysis → Build SQLite Model → Explain Model → Agent Query Building → Execute Query → Generate Excel Report → Download
+**Core Flow**: Upload Excel → Agent File Analysis → Build DuckDB Model → Explain Model → Agent Query Building → Execute Query → Generate Excel Report → Download
 
 **Key Constraint**: Single-session system - no data persistence beyond temporary processing.
 
 ## Tech Stack (FIXED - DO NOT CHANGE)
 - **Frontend**: React 18 + `xlsx` (SheetJS) + `axios` + Tailwind CSS
-- **Backend**: Python 3.11 + FastAPI + Microsoft AutoGen + pandas + SQLite + `openpyxl`
+- **Backend**: Python 3.11 + FastAPI + Microsoft AutoGen + pandas + DuckDB + `openpyxl`
 - **AI**: ChatGPT-4 (cost-optimized, not GPT-4o)
 - **Deployment**: Azure Static Web Apps (React) + Azure App Service (FastAPI)
 
@@ -36,19 +36,19 @@ def validate_excel_files(files):
     pass
 ```
 
-**File: `sqlite_manager.py`**
+**File: `duckdb_manager.py`**
 ```python
-# ONLY handle SQLite database operations
+# ONLY handle DuckDB database operations
 # DO NOT add query logic or agent interactions
-import sqlite3
+import duckdb
 import pandas as pd
 
 def create_memory_database():
-    """Create in-memory SQLite connection"""
+    """Create in-memory DuckDB connection"""
     pass
 
 def dataframe_to_table(conn, df, table_name):
-    """Convert pandas DataFrame to SQLite table using df.to_sql()"""
+    """Convert pandas DataFrame to DuckDB table using df.to_sql()"""
     pass
 ```
 
@@ -143,7 +143,7 @@ export default App;
 ```
 Build foundation components only. Target these files specifically:
 - @backend/excel_processor.py (Excel parsing only)
-- @backend/sqlite_manager.py (SQLite operations only)  
+- @backend/duckdb_manager.py (DuckDB operations only)  
 - @backend/app.py (basic FastAPI + /upload endpoint only)
 - @frontend/src/api/client.js (axios setup only)
 - @frontend/src/components/layout/MainLayout.js (60% agent area layout)
@@ -392,9 +392,10 @@ Complete file upload and analysis workflow. Target these files:
 - @frontend/src/components/FileUploader.js (upload with validation only)
 - @frontend/src/components/AgentChat.js (conversation UI only)
 - Add /analyze-file and /save-analysis to @backend/app.py
+- Add data modeling and DuckDB load to the AgentChat.js 
 
 DO NOT:
-- Add data modeling or SQLite operations yet
+
 - Add query building or report generation
 - Modify Phase 1 foundation files
 - Add complex state management
@@ -405,19 +406,19 @@ STOP after completing agent analysis. Test file-by-file conversation before proc
 ---
 
 ### PHASE 2B: DATA MODEL BUILDING (Second Vertical Slice)
-**GOAL**: Build SQLite model from analysis → explain to user → validate
+**GOAL**: Build DuckDB model from analysis → explain to user → validate
 
 #### Add Data Model Builder
 
 **File: `data_modeler.py`**
 ```python
-# ONLY build SQLite model from analysis results
+# ONLY build DuckDB model from analysis results
 # DO NOT add query execution or report generation
 from sqlite_manager import create_memory_database, dataframe_to_table
 import pandas as pd
 
 def build_data_model(files_metadata, analysis_results):
-    """Build SQLite database from Excel files and analysis"""
+    """Build DuckDB database from Excel files and analysis"""
     conn = create_memory_database()
     
     # Convert each sheet to SQLite table

@@ -4,19 +4,57 @@ ONLY handle Excel file parsing and metadata extraction
 DO NOT add business logic, agents, or complex processing
 """
 import pandas as pd
+import re
 from typing import Dict, List, Any
 from fastapi import UploadFile
+
+
+def _normalize_column_name(name: str) -> str:
+    """
+    Normalize column names for DuckDB compatibility
+    
+    Excel column names can contain spaces, special characters, and
+    other elements that cause SQL issues. This function creates
+    safe column names while maintaining readability.
+    
+    Args:
+        name (str): Original column name from Excel
+        
+    Returns:
+        str: Normalized column name safe for SQL
+        
+    Example:
+        safe_name = _normalize_column_name("Company Code")  # Returns: "Company_Code"
+        safe_name = _normalize_column_name("Cost ($)")     # Returns: "Cost___"
+    """
+    # Replace spaces and special chars with underscores
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', str(name))
+    
+    # Ensure starts with letter or underscore
+    if sanitized and sanitized[0].isdigit():
+        sanitized = 'col_' + sanitized
+        
+    # Handle empty names
+    if not sanitized:
+        sanitized = 'unnamed_column'
+        
+    # Limit length and remove double underscores
+    sanitized = re.sub(r'_+', '_', sanitized)[:64]
+    
+    return sanitized.strip('_')
 
 
 def extract_file_metadata(uploaded_files: List[UploadFile]) -> Dict[str, Any]:
     """
     Extract basic sheet names, field names, and types from Excel files
     
+    Column names are normalized for DuckDB compatibility during extraction.
+    
     Args:
         uploaded_files: List of uploaded Excel files
         
     Returns:
-        Dict with structure: {"filename": {"sheets": {"sheet_name": {"fields": [], "types": {}}}}}
+        Dict with structure: {"filename": {"sheets": {"sheet_name": {"fields": [], "normalized_fields": [], "types": {}}}}}
     """
     metadata = {}
     
@@ -28,12 +66,24 @@ def extract_file_metadata(uploaded_files: List[UploadFile]) -> Dict[str, Any]:
             file_metadata = {"sheets": {}}
             
             for sheet_name, df in df_dict.items():
-                # Extract field names and types
-                fields = list(df.columns)
-                types = {col: str(df[col].dtype) for col in fields}
+                # Extract original field names
+                original_fields = list(df.columns)
+                
+                # Normalize field names for DuckDB compatibility
+                normalized_fields = [_normalize_column_name(col) for col in original_fields]
+                
+                # Create field mapping for reference
+                field_mapping = dict(zip(original_fields, normalized_fields))
+                
+                # Extract types from normalized DataFrame
+                df_normalized = df.copy()
+                df_normalized.columns = normalized_fields
+                types = {col: str(df_normalized[col].dtype) for col in normalized_fields}
                 
                 file_metadata["sheets"][sheet_name] = {
-                    "fields": fields,
+                    "fields": original_fields,  # Keep original for display
+                    "normalized_fields": normalized_fields,  # Clean names for DuckDB
+                    "field_mapping": field_mapping,  # Original -> Normalized mapping
                     "types": types,
                     "row_count": len(df)
                 }

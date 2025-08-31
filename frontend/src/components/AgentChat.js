@@ -82,25 +82,43 @@ function AgentChat({ files, onAnalysisComplete }) {
       if (response.data.success) {
         console.log('ChatAgent response:', response.data);
         
-        // Update conversation state
-        setConversationStatus(response.data.conversation_status);
-        setConversationStep(response.data.next_step === 'complete' ? 3 : response.data.next_step);
-        setCurrentQuestion(response.data.current_question);
+        // Check if this is a new document type
+        const jsonData = response.data.json_data;
+        const isNewDocument = jsonData.document_type === "New";
         
-        // Add agent's first question to chat
-        const agentMessage = {
-          role: 'agent',
-          content: response.data.current_question,
-          timestamp: new Date().toISOString()
-        };
-        
-        setMessages(prev => [...prev, agentMessage]);
+        if (isNewDocument) {
+          // Start new document classification flow
+          setConversationStatus('classifying_new_document');
+          setConversationStep(1);
+          
+          const agentMessage = {
+            role: 'agent',
+            content: "This looks like a new kind of file - is this a common file that you will analyze regularly?",
+            timestamp: new Date().toISOString()
+          };
+          
+          setMessages([agentMessage]);
+        } else {
+          // Existing document type - show confirmation and hand off
+          const agentMessage = {
+            role: 'agent',
+            content: `You uploaded a new ${jsonData.document_type} for query and reports. This will be passed to the SQL agent for analysis.`,
+            timestamp: new Date().toISOString()
+          };
+          
+          setMessages([agentMessage]);
+          
+          // Mark as complete and move to next file
+          setTimeout(() => {
+            handleDocumentComplete(jsonData);
+          }, 2000);
+        }
         
         // Store the JSON data for reference
         setAnalysisResults(prev => ({
           ...prev, 
           [files[currentFileIndex].name]: {
-            json_data: response.data.json_data,
+            json_data: jsonData,
             conversation_status: response.data.conversation_status
           }
         }));
@@ -140,75 +158,84 @@ function AgentChat({ files, onAnalysisComplete }) {
     setError('');
     
     try {
-      // Call ChatAgent endpoint with current step and user response
-      const response = await apiClient.post('/chat-agent', {
-        json_filename: currentJsonFile,
-        conversation_step: conversationStep,
-        user_response: currentInput
-      });
-      
-      if (response.data.success) {
-        console.log('ChatAgent response:', response.data);
-        
-        // Update conversation state
-        setConversationStatus(response.data.conversation_status);
-        setConversationStep(response.data.next_step === 'complete' ? 3 : response.data.next_step);
-        setCurrentQuestion(response.data.current_question);
-        
-        // Add agent's next question to chat
-        const agentMessage = {
-          role: 'agent',
-          content: response.data.current_question,
-          timestamp: new Date().toISOString()
-        };
-        
-        setMessages(prev => [...prev, agentMessage]);
-        
-        // Check if conversation is complete
-        if (response.data.conversation_status === 'completed') {
-          // Store analysis result
-          const result = {
-            filename: files[currentFileIndex].name,
-            json_data: response.data.json_data,
-            completed: true
-          };
-          
-          setAnalysisResults(prev => ({...prev, [files[currentFileIndex].name]: result}));
-          
-          // Move to next file or complete analysis
-          if (currentFileIndex < files.length - 1) {
-            const nextIndex = currentFileIndex + 1;
-            setCurrentFileIndex(nextIndex);
-            
-
-            
-            // Start conversation for next file
-            setTimeout(() => startChatAgentConversation(), 1000);
-          } else {
-
-            
-            // Notify parent component
-            onAnalysisComplete({
-              success: true,
-              results: Object.values(analysisResults),
-              message: 'File analysis completed successfully'
-            });
-          }
-        }
-        
+      // Handle new document classification flow
+      if (conversationStatus === 'classifying_new_document') {
+        await handleNewDocumentClassification(currentInput);
       } else {
-        // Handle conversation failure
-        setError(response.data.error || 'Conversation failed');
+        // Handle regular ChatAgent conversation
+        await handleRegularConversation();
       }
       
     } catch (error) {
-      console.error('ChatAgent request failed:', error);
+      console.error('Message handling failed:', error);
       const errorMessage = error.response?.data?.detail || error.message || 'Request failed';
       setError(errorMessage);
       
     } finally {
       setAnalyzing(false);
       setCurrentInput('');
+    }
+  };
+
+  /**
+   * Handle regular ChatAgent conversation
+   */
+  const handleRegularConversation = async () => {
+    // Call ChatAgent endpoint with current step and user response
+    const response = await apiClient.post('/chat-agent', {
+      json_filename: currentJsonFile,
+      conversation_step: conversationStep,
+      user_response: currentInput
+    });
+    
+    if (response.data.success) {
+      console.log('ChatAgent response:', response.data);
+      
+      // Update conversation state
+      setConversationStatus(response.data.conversation_status);
+      setConversationStep(response.data.next_step === 'complete' ? 3 : response.data.next_step);
+      setCurrentQuestion(response.data.current_question);
+      
+      // Add agent's next question to chat
+      const agentMessage = {
+        role: 'agent',
+        content: response.data.current_question,
+        timestamp: new Date().toISOString()
+      };
+      
+      setMessages(prev => [...prev, agentMessage]);
+      
+      // Check if conversation is complete
+      if (response.data.conversation_status === 'completed') {
+        // Store analysis result
+        const result = {
+          filename: files[currentFileIndex].name,
+          json_data: response.data.json_data,
+          completed: true
+        };
+        
+        setAnalysisResults(prev => ({...prev, [files[currentFileIndex].name]: result}));
+        
+        // Move to next file or complete analysis
+        if (currentFileIndex < files.length - 1) {
+          const nextIndex = currentFileIndex + 1;
+          setCurrentFileIndex(nextIndex);
+          
+          // Start conversation for next file
+          setTimeout(() => startChatAgentConversation(), 1000);
+        } else {
+          // Notify parent component
+          onAnalysisComplete({
+            success: true,
+            results: Object.values(analysisResults),
+            message: 'File analysis completed successfully'
+          });
+        }
+      }
+      
+    } else {
+      // Handle conversation failure
+      setError(response.data.error || 'Conversation failed');
     }
   };
 
@@ -234,6 +261,134 @@ function AgentChat({ files, onAnalysisComplete }) {
     setConversationStep(0);
     setConversationStatus('idle');
     startChatAgentConversation();
+  };
+
+  /**
+   * Handle new document classification flow
+   */
+  const handleNewDocumentClassification = async (userInput) => {
+    if (conversationStep === 1) {
+      // Step 1: Ask about reuse_regularly
+      const isRegular = userInput.toLowerCase().includes('yes') || 
+                       userInput.toLowerCase().includes('regular') ||
+                       userInput.toLowerCase().includes('common') ||
+                       userInput.toLowerCase().includes('often') ||
+                       userInput.toLowerCase().includes('frequently');
+      
+      const reuseMessage = {
+        role: 'agent',
+        content: isRegular 
+          ? "Great! Since you'll use this regularly, let's give it a proper name. What type of document is this? (e.g., General Ledger, Vendor Reference, Campaign Data)"
+          : "Ok, this is a one-time upload. What type of document is this? (e.g., General Ledger, Vendor Reference, Campaign Data)",
+        timestamp: new Date().toISOString()
+      };
+      
+      setMessages(prev => [...prev, reuseMessage]);
+      setConversationStep(2);
+      
+      // Store reuse_regularly for later
+      setAnalysisResults(prev => ({
+        ...prev,
+        [files[currentFileIndex].name]: {
+          ...prev[files[currentFileIndex].name],
+          reuse_regularly: isRegular
+        }
+      }));
+      
+    } else if (conversationStep === 2) {
+      // Step 2: Collect document type name
+      const documentType = userInput.trim();
+      
+      if (documentType.length < 3) {
+        const errorMessage = {
+          role: 'agent',
+          content: "Please provide a more descriptive name for this document type.",
+          timestamp: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, errorMessage]);
+        return;
+      }
+      
+      // Generate document type code (short version)
+      const documentTypeCode = documentType
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase())
+        .join('')
+        .substring(0, 8);
+      
+      const confirmationMessage = {
+        role: 'agent',
+        content: `Perfect! I'm saving this as a ${documentType} (${documentTypeCode}). This will allow us to easily reuse queries and reports for similar files in the future.`,
+        timestamp: new Date().toISOString()
+      };
+      
+      setMessages(prev => [...prev, confirmationMessage]);
+      
+      // Update the JSON file with the new document type
+      await updateDocumentType(documentType, documentTypeCode);
+      
+      // Mark as complete
+      setTimeout(() => {
+        handleDocumentComplete({
+          document_type: documentType,
+          document_type_code: documentTypeCode,
+          reuse_regularly: analysisResults[files[currentFileIndex].name]?.reuse_regularly || false
+        });
+      }, 3000);
+    }
+  };
+
+  /**
+   * Update document type in JSON file
+   */
+  const updateDocumentType = async (documentType, documentTypeCode) => {
+    try {
+      // This would typically call an API endpoint to update the JSON
+      // For now, we'll just log the update
+      console.log(`Updating document type to: ${documentType} (${documentTypeCode})`);
+      
+      // TODO: Implement API call to update JSON file
+      // await apiClient.post('/update-document-type', {
+      //   json_filename: currentJsonFile,
+      //   document_type: documentType,
+      //   document_type_code: documentTypeCode,
+      //   reuse_regularly: analysisResults[files[currentFileIndex].name]?.reuse_regularly || false
+      // });
+      
+    } catch (error) {
+      console.error('Failed to update document type:', error);
+      setError('Failed to update document type');
+    }
+  };
+
+  /**
+   * Handle document analysis completion
+   */
+  const handleDocumentComplete = (documentInfo) => {
+    // Store completion result
+    const result = {
+      filename: files[currentFileIndex].name,
+      json_data: documentInfo,
+      completed: true
+    };
+    
+    setAnalysisResults(prev => ({...prev, [files[currentFileIndex].name]: result}));
+    
+    // Move to next file or complete analysis
+    if (currentFileIndex < files.length - 1) {
+      const nextIndex = currentFileIndex + 1;
+      setCurrentFileIndex(nextIndex);
+      
+      // Start conversation for next file
+      setTimeout(() => startChatAgentConversation(), 1000);
+    } else {
+      // Notify parent component
+      onAnalysisComplete({
+        success: true,
+        results: Object.values(analysisResults),
+        message: 'File analysis completed successfully'
+      });
+    }
   };
 
   // Don't render if no files

@@ -1,128 +1,112 @@
-"""
-SQLite database operations for Phase 1
-ONLY handle SQLite database operations
-DO NOT add query logic or agent interactions
-"""
-import sqlite3
+# DuckDB database operations for Phase 1
+# ONLY handle DuckDB database operations
+
+import duckdb
 import pandas as pd
-from typing import Optional
+from typing import Optional, List, Dict, Any
+import re
 
-
-def create_memory_database() -> sqlite3.Connection:
+def create_memory_database() -> duckdb.DuckDBPyConnection:
     """
-    Create in-memory SQLite connection for session
+    Create in-memory DuckDB connection for session
     
     Returns:
-        SQLite connection object
+        DuckDB connection object
     """
     try:
-        # Create in-memory database
-        conn = sqlite3.connect(':memory:')
-        
-        # Enable foreign keys
-        conn.execute("PRAGMA foreign_keys = ON")
-        
-        # Set timeout for busy database
-        conn.execute("PRAGMA busy_timeout = 30000")
-        
+        # Create in-memory DuckDB connection
+        conn = duckdb.connect(':memory:')
         return conn
-        
     except Exception as e:
-        print(f"Error creating database: {e}")
+        print(f"Failed to create DuckDB database: {e}")
         raise
 
-
-def dataframe_to_table(conn: sqlite3.Connection, df: pd.DataFrame, table_name: str) -> bool:
+def dataframe_to_table(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame, table_name: str) -> bool:
     """
-    Convert pandas DataFrame to SQLite table using df.to_sql()
+    Convert pandas DataFrame to DuckDB table using df.to_sql()
     
     Args:
-        conn: SQLite connection
-        df: Pandas DataFrame to convert
-        table_name: Name for the SQLite table
+        conn: DuckDB connection
+        df: DataFrame to convert
+        table_name: Name for the DuckDB table
         
     Returns:
-        True if successful, False otherwise
+        bool: Success status
     """
     try:
-        # Validate table name (SQLite safe)
-        if not table_name.replace('_', '').isalnum():
-            raise ValueError(f"Invalid table name: {table_name}")
-        
-        # Convert DataFrame to SQLite table
-        df.to_sql(
-            name=table_name,
-            con=conn,
-            if_exists='replace',  # Replace if exists
-            index=False,  # Don't include DataFrame index
-            method='multi'  # Use multi-insert for better performance
-        )
+        # Validate table name (DuckDB safe)
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+            print(f"Invalid table name: {table_name}")
+            return False
+            
+        # Convert DataFrame to DuckDB table
+        conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM df")
         
         # Verify table was created
-        cursor = conn.cursor()
-        cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+        result = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+        row_count = result.fetchone()[0]
         
-        if cursor.fetchone():
-            print(f"Successfully created table: {table_name}")
+        if row_count == len(df):
+            print(f"Successfully created table '{table_name}' with {row_count} rows")
             return True
         else:
-            print(f"Failed to create table: {table_name}")
+            print(f"Table created but row count mismatch: expected {len(df)}, got {row_count}")
             return False
             
     except Exception as e:
         print(f"Error creating table {table_name}: {e}")
         return False
 
-
-def get_table_info(conn: sqlite3.Connection, table_name: str) -> Optional[dict]:
+def get_table_info(conn: duckdb.DuckDBPyConnection, table_name: str) -> Optional[dict]:
     """
-    Get basic information about a table
+    Get detailed information about a table
     
     Args:
-        conn: SQLite connection
+        conn: DuckDB connection
         table_name: Name of the table
         
     Returns:
-        Dict with table info or None if error
+        dict: Table information or None if error
     """
     try:
-        cursor = conn.cursor()
-        
-        # Get table schema
-        cursor.execute(f"PRAGMA table_info({table_name})")
-        columns = cursor.fetchall()
+        # Get table schema information
+        result = conn.execute(f"DESCRIBE {table_name}")
+        columns = result.fetchall()
         
         # Get row count
-        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-        row_count = cursor.fetchone()[0]
+        count_result = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+        row_count = count_result.fetchone()[0]
+        
+        # Get sample data
+        sample_result = conn.execute(f"SELECT * FROM {table_name} LIMIT 5")
+        sample_data = sample_result.fetchall()
         
         return {
             "table_name": table_name,
-            "columns": [{"name": col[1], "type": col[2], "not_null": col[3], "primary_key": col[5]} for col in columns],
-            "row_count": row_count
+            "columns": [{"name": col[0], "type": col[1]} for col in columns],
+            "row_count": row_count,
+            "sample_data": sample_data
         }
         
     except Exception as e:
         print(f"Error getting table info for {table_name}: {e}")
         return None
 
-
-def list_tables(conn: sqlite3.Connection) -> list:
+def list_tables(conn: duckdb.DuckDBPyConnection) -> List[str]:
     """
     List all tables in the database
     
     Args:
-        conn: SQLite connection
+        conn: DuckDB connection
         
     Returns:
         List of table names
     """
     try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [row[0] for row in cursor.fetchall()]
+        # Use DuckDB's information_schema to list tables
+        result = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
+        tables = [row[0] for row in result.fetchall()]
         return tables
-        
     except Exception as e:
         print(f"Error listing tables: {e}")
         return []

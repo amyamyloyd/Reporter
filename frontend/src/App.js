@@ -95,14 +95,14 @@ function App() {
                 <span className="text-xs text-green-600">(Complete)</span>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-blue-500">🔄</span>
-                <span className="text-blue-700 font-medium">Phase 2A: File Upload & Analysis</span>
-                <span className="text-xs text-blue-600">(Current)</span>
+                <span className="text-green-500">✓</span>
+                <span className="text-green-700">Phase 2A: File Upload & Analysis</span>
+                <span className="text-xs text-green-600">(Complete)</span>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-gray-400">⏳</span>
-                <span className="text-gray-500">Phase 2B: Data Model Building</span>
-                <span className="text-xs text-gray-400">(Pending)</span>
+                <span className="text-blue-500">🔄</span>
+                <span className="text-blue-700 font-medium">Phase 2B: Data Model Building</span>
+                <span className="text-xs text-blue-600">(In Progress)</span>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="text-gray-400">⏳</span>
@@ -132,11 +132,11 @@ function App() {
               </div>
               <div className="flex items-center space-x-2">
                 <span className="text-green-500">✓</span>
-                <span className="text-green-700">Backend: /analyze-file endpoint</span>
+                <span className="text-green-700">Backend: /chat-agent endpoint</span>
               </div>
               <div className="flex items-center space-x-2">
-                <span className="text-blue-500">🔄</span>
-                <span className="text-blue-700 font-medium">Testing: File upload → Agent analysis workflow</span>
+                <span className="text-green-500">✓</span>
+                <span className="text-green-700">Testing: File upload → Agent analysis workflow</span>
               </div>
             </div>
           </div>
@@ -217,11 +217,12 @@ function App() {
               📖 How Phase 2A Works
             </h3>
             <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
-              <li>Upload up to 5 Excel files (max 50MB each)</li>
-              <li>Use the AI chat panel to analyze each file</li>
-              <li>Describe what each file represents</li>
-              <li>AI will identify field relationships and roles</li>
-              <li>Complete analysis of all files to finish Phase 2A</li>
+              <li>Upload one Excel file at a time (max 50MB)</li>
+              <li>AI agent asks what the file represents</li>
+              <li>Describe the file purpose (inventory, sales, etc.)</li>
+              <li>AI identifies basic field types and roles</li>
+              <li>Analysis results saved as JSON metadata</li>
+              <li>Simple workflow: Upload → Chat → Basic Analysis → Save</li>
             </ol>
           </div>
         </div>

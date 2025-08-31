@@ -371,7 +371,32 @@ async def chat_agent_conversation(request: Dict[str, Any]):
         with open(json_path, 'r') as f:
             json_data = json.load(f)
         
-        # Initialize conversation flow
+        # Check if document type already exists and is not "New"
+        document_type = json_data.get('document_type', '')
+        if document_type and document_type != "New" and document_type.strip():
+            # Document type exists - skip conversation and mark as ready for DuckDB
+            print(f"Document type '{document_type}' already exists - skipping conversation")
+            
+            # Mark as ready for DuckDB processing
+            json_data["ready_for_duckdb"] = True
+            json_data["conversation_status"] = "completed"
+            
+            # Save updated JSON
+            with open(json_path, 'w') as f:
+                json.dump(json_data, f, indent=2)
+            
+            return {
+                "success": True,
+                "conversation_status": "completed",
+                "current_question": f"Document type '{document_type}' already classified. Ready for DuckDB processing.",
+                "next_step": "complete",
+                "total_steps": 0,
+                "current_step": 0,
+                "json_data": json_data,
+                "message": "Document already classified - ready for DuckDB"
+            }
+        
+        # Initialize conversation flow for new/unknown document types
         conversation_flow = [
             {
                 "step": 1,
@@ -381,13 +406,13 @@ async def chat_agent_conversation(request: Dict[str, Any]):
             },
             {
                 "step": 2,
-                "question": "Please provide a brief description of this document and its purpose",
-                "field": "user_description",
+                "question": "What type of document is this? (e.g., General Ledger, Vendor Reference, Campaign Data) and please provide a brief description of its purpose",
+                "field": "document_type_and_description",
                 "next_step": 3
             },
             {
                 "step": 3,
-                "question": "Agent will confirm understanding and complete analysis",
+                "question": f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). The document is now ready for DuckDB processing and SQL queries.",
                 "field": "analysis_complete",
                 "next_step": "complete"
             }
@@ -411,8 +436,46 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                     }
                 
                 json_data[field_name] = True
-            elif field_name == "user_description":
-                json_data[field_name] = user_response.strip()
+            elif field_name == "document_type_and_description":
+                # Parse user response to extract document type and description
+                response_text = user_response.strip()
+                
+                # Try to extract document type (first part before any punctuation or "and")
+                import re
+                
+                # Look for common document type patterns
+                doc_type_patterns = [
+                    r'^([A-Za-z\s]+?)(?:\s+and|\s*[,;]\s*|\s*[-–]\s*|\s*\(|$)',
+                    r'^([A-Za-z\s]+?)(?:\s+description|\s+purpose|\s+is\s+a|\s+for)',
+                    r'^([A-Za-z\s]+?)(?:\s+data|\s+records|\s+file)'
+                ]
+                
+                document_type = None
+                for pattern in doc_type_patterns:
+                    match = re.search(pattern, response_text)
+                    if match:
+                        document_type = match.group(1).strip()
+                        break
+                
+                # If no pattern match, take first 2-3 words as document type
+                if not document_type:
+                    words = response_text.split()
+                    if len(words) >= 2:
+                        document_type = ' '.join(words[:2]).strip()
+                    else:
+                        document_type = response_text[:50].strip()  # Fallback
+                
+                # Generate document type code (short version)
+                document_type_code = document_type.replace(' ', '').upper()[:8]
+                
+                # Store both document type and description
+                json_data["document_type"] = document_type
+                json_data["document_type_code"] = document_type_code
+                json_data["user_description"] = response_text
+                json_data["ready_for_duckdb"] = True
+                
+                print(f"Extracted document type: '{document_type}' with code: '{document_type_code}'")
+                
             elif field_name == "analysis_complete":
                 json_data[field_name] = True
             
@@ -454,9 +517,10 @@ async def chat_agent_conversation(request: Dict[str, Any]):
             elif conversation_step == 3:
                 # After step 3, complete
                 next_step = "complete"
-                current_question = "Analysis complete! Ready for next phase."
+                current_question = f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). The document is now ready for DuckDB processing and SQL queries."
                 conversation_status = "completed"
                 json_data["analysis_complete"] = True
+                json_data["ready_for_duckdb"] = True
         else:
             # Conversation already complete
             current_question = "Conversation already completed."

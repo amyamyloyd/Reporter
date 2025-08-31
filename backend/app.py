@@ -4,11 +4,12 @@ from fastapi.responses import JSONResponse
 from typing import List, Dict, Any
 import os
 import json
+import re
 from datetime import datetime
 from dotenv import load_dotenv
 
 # Import Phase 1 modules
-from excel_processor import extract_file_metadata, validate_excel_files
+from excel_processor import extract_file_metadata_from_saved_file, validate_excel_files
 from duckdb_manager import create_memory_database
 
 # Import Phase 2A modules
@@ -114,9 +115,6 @@ async def upload_files(files: List[UploadFile] = File(...)):
         if not validation["valid_files"]:
             raise HTTPException(status_code=400, detail="No valid files provided")
         
-        # Extract metadata using Phase 1 module
-        metadata = extract_file_metadata(files)
-        
         # Create in-memory database for session (Phase 1 foundation)
         db_conn = create_memory_database()
         
@@ -129,24 +127,24 @@ async def upload_files(files: List[UploadFile] = File(...)):
         os.makedirs("stored_queries/files", exist_ok=True)
         
         for file in validation["valid_files"]:
-            file_metadata = metadata.get(file.filename, {})
             
             # Create unique filename with timestamp
             timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
             base_name = os.path.splitext(file.filename)[0]  # Remove .xlsx extension
             json_filename = f"{base_name}_{timestamp}.json"
-            excel_filename = f"{base_name}_{timestamp}.xlsx"
+            excel_filename = file.filename
             
             json_path = f"stored_queries/{json_filename}"
             excel_path = f"stored_queries/files/{excel_filename}"
             
-            # Save the actual Excel file with timestamp
+            # STEP 1: Save the Excel file FIRST (no processing)
             with open(excel_path, 'wb') as f:
-                # Read file content and write to disk
                 content = await file.read()
                 f.write(content)
-                # Reset file pointer for later processing
-                await file.seek(0)
+                print(f"✅ Excel file saved: {excel_path} ({len(content)} bytes)")
+            
+            # STEP 2: Extract metadata from the SAVED file (not the uploaded file)
+            file_metadata = extract_file_metadata_from_saved_file(excel_path)
             
             # Extract fields from sheets
             all_fields = []
@@ -169,7 +167,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "normalized_fields": normalized_fields,  # Clean field names for DuckDB
                 "record_count": sum(sheet.get("row_count", 0) for sheet in file_metadata.get("sheets", {}).values()),
                 "upload_timestamp": timestamp,
-                "file_size": file.size,
+                "file_size": len(content),
                 "content_type": file.content_type
             }
             
@@ -177,85 +175,65 @@ async def upload_files(files: List[UploadFile] = File(...)):
             with open(json_path, 'w') as f:
                 json.dump(json_data, f, indent=2)
             
-            print(f"Saved Excel file: {excel_path}")
             print(f"Created JSON file: {json_path}")
             
-            # NEW: DuckDB Integration - Create table and check document type
+            # VERIFY: Check if saved Excel file is valid before proceeding
+            import os
+            if os.path.exists(excel_path):
+                file_size = os.path.getsize(excel_path)
+                print(f"✅ Saved file verified: {excel_path} ({file_size} bytes)")
+                if file_size == 0:
+                    print(f"❌ ERROR: Saved file is empty!")
+                    continue
+                if file_size != len(content):
+                    print(f"❌ ERROR: File size mismatch! Expected: {len(content)}, Got: {file_size}")
+                    continue
+            else:
+                print(f"❌ ERROR: Saved file not found!")
+                continue
+            
+            # CRITICAL: DuckDB Integration - Create table for EVERY file
+            print(f"🔄 Creating DuckDB table for: {excel_filename}")
+            
             try:
-                # Load Excel data into pandas DataFrame for DuckDB
-                import pandas as pd
-                df = pd.read_excel(excel_path, engine='openpyxl')
+                # Generate table name from original filename
+                # Format: {original_filename}_{timestamp}
+                timestamp_short = timestamp.replace('-', '').replace(':', '').replace(' ', '')
+                # Clean filename for DuckDB (remove spaces, special chars)
+                clean_filename = re.sub(r'[^a-zA-Z0-9_]', '_', base_name)
+                duckdb_table_name = f"{clean_filename}_{timestamp_short}"
                 
-                # Apply normalized column names for DuckDB compatibility
-                if normalized_fields and len(normalized_fields) == len(df.columns):
-                    df.columns = normalized_fields
-                    print(f"Applied normalized column names for DuckDB compatibility")
+                print(f"Generated table name: {duckdb_table_name}")
                 
-                print(f"Loaded Excel data: {df.shape[0]} rows, {df.shape[1]} columns")
+                # SIMPLIFIED: Create DuckDB table directly from Excel file
+                print(f"🔄 Creating DuckDB table: {duckdb_table_name}")
                 
-                # Check document registry for matching field patterns using normalized fields
-                from duckdb_manager import check_document_type_by_fields
-                doc_type_info = check_document_type_by_fields(db_conn, normalized_fields)
-                
-                # Determine document type and table naming
-                if doc_type_info:
-                    # Found matching document type
-                    document_type = doc_type_info["document_type"]
-                    document_type_code = doc_type_info["document_type_code"]
-                    is_current_version = True  # This is the latest version
-                    print(f"Matched existing document type: {document_type}")
-                else:
-                    # New document type
-                    document_type = "New"
-                    document_type_code = "new"
-                    is_current_version = True
-                    print(f"New document type detected - no pattern match found")
+                try:
+                    # Use the simple working pattern: load Excel, register DataFrame, create table
+                    import pandas as pd
+                    df = pd.read_excel(excel_path, engine='openpyxl')
+                    print(f"✅ Loaded Excel data: {df.shape[0]} rows, {df.shape[1]} columns")
                     
-                    # Step 3: Add new document to registry for future auto-detection
-                    try:
-                        from duckdb_manager import add_new_document_type
-                        registry_updated = add_new_document_type(
-                            db_conn,
-                            "New Document",  # Generic name until user provides specific type
-                            "new",           # Generic code until user provides specific code
-                            normalized_fields,      # Store field pattern for future matching
-                            False,           # reuse_regularly = False initially
-                            "Document type to be determined by user during analysis"
-                        )
-                        
-                        if registry_updated:
-                            print(f"✅ New document added to registry for future auto-detection")
-                        else:
-                            print(f"⚠️  Failed to add new document to registry")
-                            
-                    except Exception as e:
-                        print(f"⚠️  Registry update failed: {e}")
-                        # Continue with upload even if registry update fails
-                
-                # Generate DuckDB table name with proper convention
-                # Format: {type}_{timestamp}_{version}
-                timestamp_short = timestamp.replace('-', '').replace(':', '')
-                duckdb_table_name = f"{document_type_code.lower()}_{timestamp_short}"
-                
-                # Create DuckDB table
-                from duckdb_manager import dataframe_to_table
-                table_created = dataframe_to_table(db_conn, df, duckdb_table_name)
-                
-                if table_created:
-                    print(f"✅ DuckDB table created: {duckdb_table_name}")
+                    # Register DataFrame and create table (the working pattern)
+                    db_conn.register('temp_df', df)
+                    db_conn.execute(f"CREATE TABLE {duckdb_table_name} AS SELECT * FROM temp_df")
+                    db_conn.unregister('temp_df')
+                    print(f"✅ Table created successfully")
                     
-                    # Extract data version from filename
-                    from duckdb_manager import extract_data_version_from_filename
-                    data_version = extract_data_version_from_filename(excel_filename)
+                    # Verify table creation
+                    result = db_conn.execute(f"SELECT COUNT(*) FROM {duckdb_table_name}")
+                    row_count = result.fetchone()[0]
+                    print(f"✅ Table verified: {row_count} rows")
+                    
+                    print(f"✅ SUCCESS: DuckDB table created: {duckdb_table_name}")
                     
                     # Update JSON with DuckDB metadata
                     json_data.update({
                         "duckdb_table_name": duckdb_table_name,
                         "duckdb_loaded": True,
-                        "data_version": data_version,
-                        "document_type": document_type,
-                        "document_type_code": document_type_code,
-                        "is_current_version": is_current_version
+                        "document_type": "New",
+                        "document_type_code": "new",
+                        "is_current_version": True
                     })
                     
                     # Save updated JSON with DuckDB metadata
@@ -264,25 +242,29 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     
                     print(f"✅ JSON updated with DuckDB metadata")
                     
-                else:
-                    print(f"❌ Failed to create DuckDB table: {duckdb_table_name}")
+                except Exception as e:
+                    print(f"❌ CRITICAL ERROR: Failed to create DuckDB table: {duckdb_table_name}")
+                    print(f"❌ Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
                     # Still update JSON but mark as not loaded
                     json_data.update({
                         "duckdb_table_name": None,
                         "duckdb_loaded": False,
-                        "data_version": None,
-                        "document_type": document_type,
-                        "document_type_code": document_type_code,
-                        "is_current_version": is_current_version
+                        "document_type": "New",
+                        "document_type_code": "new",
+                        "is_current_version": True
                     })
                     
             except Exception as e:
-                print(f"❌ DuckDB integration failed: {e}")
+                print(f"❌ CRITICAL ERROR: DuckDB integration failed: {e}")
+                print(f"❌ Error type: {type(e).__name__}")
+                print(f"❌ Error details: {str(e)}")
                 # Update JSON with error state
                 json_data.update({
                     "duckdb_table_name": None,
                     "duckdb_loaded": False,
-                    "data_version": None,
                     "document_type": "New",
                     "document_type_code": "new",
                     "is_current_version": True,
@@ -293,10 +275,17 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 with open(json_path, 'w') as f:
                     json.dump(json_data, f, indent=2)
         
+        # Close database connection
+        if db_conn:
+            db_conn.close()
+            print("✅ Database connection closed")
+        
         # Return files array that frontend expects for AgentChat
         files_data = []
         for i, file in enumerate(validation["valid_files"]):
-            file_metadata = metadata.get(file.filename, {})
+            # Get metadata from the saved file
+            excel_path = f"stored_queries/files/{file.filename}"
+            file_metadata = extract_file_metadata_from_saved_file(excel_path) if os.path.exists(excel_path) else {}
             
             # Combine fields from all sheets for the frontend
             all_fields = []
@@ -317,7 +306,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "size": file.size,
                 "content_type": file.content_type,
                 "fields": all_fields,  # Combined fields from all sheets
-                "sheets": file_metadata.get("sheets", []),
+                "sheets": file_metadata.get("sheets", {}) if file_metadata else {},
                 "file_index": i,
                 "json_filename": json_filename  # Include JSON filename for ChatAgent
             })
@@ -327,7 +316,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
             "message": f"Successfully processed {len(validation['valid_files'])} files",
             "files": files_data,  # This is what AgentChat expects
             "validation": validation,
-            "metadata": metadata,
+            "metadata": {}, # Metadata is now extracted from saved files
             "database_ready": True
         }
         
@@ -376,6 +365,49 @@ async def chat_agent_conversation(request: Dict[str, Any]):
         if document_type and document_type != "New" and document_type.strip():
             # Document type exists - skip conversation and mark as ready for DuckDB
             print(f"Document type '{document_type}' already exists - skipping conversation")
+            
+            # Create DuckDB table since document is already classified
+            try:
+                from duckdb_manager import dataframe_to_table
+                import pandas as pd
+                
+                # Read the Excel file to get the data
+                excel_filename = json_data.get('filename', '')
+                if excel_filename:
+                    excel_path = f"stored_queries/files/{excel_filename}"
+                    if os.path.exists(excel_path):
+                        # Read Excel file
+                        df = pd.read_excel(excel_path)
+                        
+                        # Generate simple, clean table name
+                        timestamp_short = json_data.get('upload_timestamp', '').replace('-', '').replace(':', '').replace(' ', '')
+                        duckdb_table_name = f"excel_data_{timestamp_short}"
+                        
+                        # Create DuckDB connection and table
+                        conn = create_memory_database()
+                        table_created = dataframe_to_table(conn, df, duckdb_table_name)
+                        conn.close()
+                        
+                        if table_created:
+                            print(f"✅ DuckDB table created: {duckdb_table_name}")
+                            json_data["duckdb_table_name"] = duckdb_table_name
+                            json_data["duckdb_loaded"] = True
+                        else:
+                            print(f"❌ Failed to create DuckDB table: {duckdb_table_name}")
+                            json_data["duckdb_table_name"] = None
+                            json_data["duckdb_loaded"] = False
+                            json_data["duckdb_error"] = "Table creation failed"
+                    else:
+                        print(f"❌ Excel file not found: {excel_path}")
+                        json_data["duckdb_error"] = f"Excel file not found: {excel_path}"
+                else:
+                    print(f"❌ No filename in JSON data")
+                    json_data["duckdb_error"] = "No filename in JSON data"
+                    
+            except Exception as e:
+                print(f"❌ DuckDB table creation failed: {e}")
+                json_data["duckdb_error"] = str(e)
+                json_data["duckdb_loaded"] = False
             
             # Mark as ready for DuckDB processing
             json_data["ready_for_duckdb"] = True
@@ -441,8 +473,6 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                 response_text = user_response.strip()
                 
                 # Try to extract document type (first part before any punctuation or "and")
-                import re
-                
                 # Look for common document type patterns
                 doc_type_patterns = [
                     r'^([A-Za-z\s]+?)(?:\s+and|\s*[,;]\s*|\s*[-–]\s*|\s*\(|$)',
@@ -475,6 +505,34 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                 json_data["ready_for_duckdb"] = True
                 
                 print(f"Extracted document type: '{document_type}' with code: '{document_type_code}'")
+                
+                # Update document registry with the new document type
+                try:
+                    from duckdb_manager import add_new_document_type
+                    conn = create_memory_database()
+                    
+                    # Get the normalized fields from the JSON
+                    normalized_fields = json_data.get('normalized_fields', [])
+                    
+                    registry_updated = add_new_document_type(
+                        conn,
+                        document_type,
+                        document_type_code,
+                        normalized_fields,
+                        True,  # reuse_regularly = True (assume all are reusable)
+                        response_text  # Use the full response as description
+                    )
+                    
+                    if registry_updated:
+                        print(f"✅ Document type '{document_type}' added to registry")
+                    else:
+                        print(f"⚠️  Failed to add document type to registry")
+                        
+                    conn.close()
+                    
+                except Exception as e:
+                    print(f"⚠️  Registry update failed: {e}")
+                    # Continue even if registry update fails
                 
             elif field_name == "analysis_complete":
                 json_data[field_name] = True
@@ -521,6 +579,72 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                 conversation_status = "completed"
                 json_data["analysis_complete"] = True
                 json_data["ready_for_duckdb"] = True
+                
+                # Now create the DuckDB table with the Excel data
+                try:
+                    from duckdb_manager import dataframe_to_table
+                    import pandas as pd
+                    
+                    # Read the Excel file to get the data
+                    excel_filename = json_data.get('filename', '')
+                    if excel_filename:
+                        excel_path = f"stored_queries/files/{excel_filename}"
+                        if os.path.exists(excel_path):
+                            # Read Excel file
+                            df = pd.read_excel(excel_path)
+                            
+                            # Generate safe table name
+                            timestamp_short = json_data.get('upload_timestamp', '').replace('-', '').replace(':', '').replace(' ', '')
+                            
+                            # Create a safe table name from document_type
+                            document_type = json_data.get('document_type', '')
+                            if document_type and document_type != "New":
+                                # Use first 2-3 words of document type, sanitized
+                                words = document_type.split()[:3]
+                                safe_type = '_'.join(words).lower()
+                                safe_type = re.sub(r'[^a-zA-Z0-9_]', '_', safe_type)
+                            else:
+                                # Fallback to generic name
+                                safe_type = "excel_data"
+                            
+                            # Ensure table name starts with letter and is valid
+                            if safe_type and safe_type[0].isdigit():
+                                safe_type = 'tbl_' + safe_type
+                            
+                            duckdb_table_name = f"{safe_type}_{timestamp_short}"
+                            
+                            # Final validation - ensure table name is valid
+                            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', duckdb_table_name):
+                                # If still invalid, use a completely safe fallback
+                                duckdb_table_name = f"excel_data_{timestamp_short}"
+                            
+                            print(f"Generated table name: {duckdb_table_name}")
+                            
+                            # Create DuckDB connection and table
+                            conn = create_memory_database()
+                            table_created = dataframe_to_table(conn, df, duckdb_table_name)
+                            conn.close()
+                            
+                            if table_created:
+                                print(f"✅ DuckDB table created: {duckdb_table_name}")
+                                json_data["duckdb_table_name"] = duckdb_table_name
+                                json_data["duckdb_loaded"] = True
+                            else:
+                                print(f"❌ Failed to create DuckDB table: {duckdb_table_name}")
+                                json_data["duckdb_table_name"] = None
+                                json_data["duckdb_loaded"] = False
+                                json_data["duckdb_error"] = "Table creation failed"
+                        else:
+                            print(f"❌ Excel file not found: {excel_path}")
+                            json_data["duckdb_error"] = f"Excel file not found: {excel_path}"
+                    else:
+                        print(f"❌ No filename in JSON data")
+                        json_data["duckdb_error"] = "No filename in JSON data"
+                        
+                except Exception as e:
+                    print(f"❌ DuckDB table creation failed: {e}")
+                    json_data["duckdb_error"] = str(e)
+                    json_data["duckdb_loaded"] = False
         else:
             # Conversation already complete
             current_question = "Conversation already completed."

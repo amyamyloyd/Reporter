@@ -44,6 +44,56 @@ def _normalize_column_name(name: str) -> str:
     return sanitized.strip('_')
 
 
+def extract_file_metadata_from_saved_file(file_path: str) -> Dict[str, Any]:
+    """
+    Extract basic sheet names, field names, and types from a saved Excel file
+    
+    Column names are normalized for DuckDB compatibility during extraction.
+    This version works with saved file paths instead of file objects.
+    
+    Args:
+        file_path: Path to the saved Excel file
+        
+    Returns:
+        Dict with structure: {"sheets": {"sheet_name": {"fields": [], "normalized_fields": [], "types": {}}}}
+    """
+    try:
+        # Read Excel file with pandas from file path
+        df_dict = pd.read_excel(file_path, sheet_name=None)
+        
+        file_metadata = {"sheets": {}}
+        
+        for sheet_name, df in df_dict.items():
+            # Extract original field names
+            original_fields = list(df.columns)
+            
+            # Normalize field names for DuckDB compatibility
+            normalized_fields = [_normalize_column_name(col) for col in original_fields]
+            
+            # Create field mapping for reference
+            field_mapping = dict(zip(original_fields, normalized_fields))
+            
+            # Extract types from normalized DataFrame
+            df_normalized = df.copy()
+            df_normalized.columns = normalized_fields
+            types = {col: str(df_normalized[col].dtype) for col in normalized_fields}
+            
+            file_metadata["sheets"][sheet_name] = {
+                "fields": original_fields,  # Keep original for display
+                "normalized_fields": normalized_fields,  # Clean names for DuckDB
+                "field_mapping": field_mapping,  # Original -> Normalized mapping
+                "types": types,
+                "row_count": len(df)
+            }
+        
+        return file_metadata
+        
+    except Exception as e:
+        # Log error and return error state
+        print(f"Error processing {file_path}: {e}")
+        return {"error": str(e)}
+
+
 def extract_file_metadata(uploaded_files: List[UploadFile]) -> Dict[str, Any]:
     """
     Extract basic sheet names, field names, and types from Excel files

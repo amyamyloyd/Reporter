@@ -15,7 +15,7 @@ def create_memory_database() -> duckdb.DuckDBPyConnection:
     Uses 'excel_reporting.db' file for long-term storage in production.
     
     Returns:
-        DuckDB connection object
+        DuckDB connection objectu
         
     Example:
         conn = create_memory_database()
@@ -26,7 +26,11 @@ def create_memory_database() -> duckdb.DuckDBPyConnection:
         # Create persistent DuckDB connection instead of in-memory
         # This ensures data persists between user sessions
         # Production database name: excel_reporting.db
-        conn = duckdb.connect('excel_reporting.db')
+        import os
+        # Get the absolute path to the backend directory
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(backend_dir, 'excel_reporting.db')
+        conn = duckdb.connect(db_path)
         
         # Note: DuckDB doesn't support SQLite PRAGMA commands
         # Foreign key constraints are handled differently in DuckDB
@@ -292,6 +296,11 @@ def dataframe_to_table(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame, table_
             print("Table created successfully in persistent database")
     """
     try:
+        print(f"DEBUG: Starting table creation for '{table_name}'")
+        print(f"DEBUG: DataFrame shape: {df.shape}")
+        print(f"DEBUG: DataFrame columns: {list(df.columns)}")
+        print(f"DEBUG: Connection type: {type(conn)}")
+        
         # Validate table name (DuckDB safe)
         if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
             print(f"Invalid table name: {table_name}")
@@ -302,19 +311,33 @@ def dataframe_to_table(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame, table_
             print(f"DataFrame is empty for table {table_name}")
             return False
             
-        # Column names should already be normalized during upload
-        # No need to sanitize again
-        print(f"Creating table '{table_name}' with columns: {list(df.columns)}")
+        # Sanitize column names to avoid spaces/special characters
+        # This ensures DuckDB compatibility even if normalization failed
+        df.columns = [re.sub(r'[^a-zA-Z0-9_]', '_', col).strip('_') for col in df.columns]
+        print(f"DEBUG: Sanitized columns: {list(df.columns)}")
         
-        # Convert DataFrame to DuckDB table using pandas to_sql method
-        # This is more reliable than manual CREATE TABLE
-        df.to_sql(
-            name=table_name,
-            con=conn,
-            if_exists='replace',  # Replace if table exists
-            index=False,  # Don't include DataFrame index
-            method='multi'  # Faster bulk insert for large datasets
-        )
+        # Convert DataFrame to DuckDB table using DuckDB's native DataFrame support
+        # DuckDB can directly create tables from pandas DataFrames
+        
+        # First, drop table if it exists
+        print(f"DEBUG: Dropping table if exists: {table_name}")
+        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+        print(f"DEBUG: Table dropped successfully")
+        
+        # Register the DataFrame as a virtual table in DuckDB
+        print(f"DEBUG: Registering DataFrame as 'df_temp'")
+        conn.register('df_temp', df)
+        print(f"DEBUG: DataFrame registered successfully")
+        
+        # Create table from the registered DataFrame
+        print(f"DEBUG: Creating table: {table_name}")
+        conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM df_temp")
+        print(f"DEBUG: Table created successfully")
+        
+        # Unregister the temporary view to clean up
+        print(f"DEBUG: Unregistering temporary view")
+        conn.unregister('df_temp')
+        print(f"DEBUG: Temporary view unregistered")
         
         # Verify table was created and data loaded correctly
         result = conn.execute(f"SELECT COUNT(*) FROM {table_name}")
@@ -328,7 +351,11 @@ def dataframe_to_table(conn: duckdb.DuckDBPyConnection, df: pd.DataFrame, table_
             return False
             
     except Exception as e:
-        print(f"Error creating table {table_name}: {e}")
+        print(f"ERROR creating table {table_name}: {e}")
+        print(f"ERROR type: {type(e).__name__}")
+        print(f"ERROR details: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def _sanitize_column_name(name: str) -> str:

@@ -60,26 +60,31 @@
     "Last_Updated"
   ],
   "record_count": 20,
-  "upload_timestamp": "2025-08-31_153108",
+  "upload_timestamp": "2025-08-31_162349",
   "file_size": 5958,
   "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "document_type": "Inventory management",
+  "document_type_code": "INVENTOR",
+  "conversation_status": "pending",
+  "ready_for_sql_agent": false,
+  "duckdb_table_name": "inventory_data_20250831_162349",
+  "duckdb_loaded": true,
+  "is_current_version": true,
   "user_confirmation": true,
   "conversation_history": [
     {
       "step": 1,
       "question": "Per my analysis, this file includes Product ID, Product Name, Category, Stock Quantity, Unit Cost, Supplier, Last Updated with 20 records. Is that correct?",
       "user_response": "yes",
-      "timestamp": "2025-08-31T15:31:12.254637"
+      "timestamp": "2025-08-31T16:23:53.530717"
     },
     {
       "step": 2,
       "question": "What type of document is this? (e.g., General Ledger, Vendor Reference, Campaign Data) and please provide a brief description of its purpose",
-      "user_response": "Inventory",
-      "timestamp": "2025-08-31T15:31:19.259411"
+      "user_response": "Inventory management - we use it weekly to determine the inventory needs ",
+      "timestamp": "2025-08-31T16:24:14.117566"
     }
   ],
-  "document_type": "Inventory",
-  "document_type_code": "INVENTOR",
-  "user_description": "Inventory",
+  "user_description": "Inventory management - we use it weekly to determine the inventory needs",
   "ready_for_duckdb": true
 }

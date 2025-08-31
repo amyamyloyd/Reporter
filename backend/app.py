@@ -159,6 +159,39 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 all_fields = list(dict.fromkeys(all_fields))
                 normalized_fields = list(dict.fromkeys(normalized_fields))
             
+            # STEP 3: Check if document type already exists by comparing fields
+            document_type = "New"
+            document_type_code = "new"
+            
+            try:
+                # Check if doc_registry table exists and query for matching document types
+                # Use a simple try/catch approach instead of information_schema
+                fields_string = '|'.join(sorted(all_fields))  # Create comparable fields string
+                
+                # Query for exact field matches
+                match_result = db_conn.execute("""
+                    SELECT document_type, document_type_code 
+                    FROM doc_registry 
+                    WHERE field_pattern = ? 
+                    LIMIT 1
+                """, [fields_string])
+                
+                match = match_result.fetchone()
+                if match:
+                    document_type = match[0]
+                    document_type_code = match[1]
+                    print(f"✅ Document type match found: {document_type} ({document_type_code})")
+                    print(f"✅ Fields matched: {', '.join(all_fields)}")
+                else:
+                    print(f"📝 No existing document type found - marking as New")
+                    print(f"📝 New fields: {', '.join(all_fields)}")
+                    
+            except Exception as e:
+                print(f"⚠️ Error checking document registry: {e}")
+                print(f"📝 Falling back to New document type")
+                document_type = "New"
+                document_type_code = "new"
+            
             # Create JSON structure
             json_data = {
                 "filename": excel_filename,  # Reference the saved Excel file
@@ -168,7 +201,11 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "record_count": sum(sheet.get("row_count", 0) for sheet in file_metadata.get("sheets", {}).values()),
                 "upload_timestamp": timestamp,
                 "file_size": len(content),
-                "content_type": file.content_type
+                "content_type": file.content_type,
+                "document_type": document_type,  # Use determined document type
+                "document_type_code": document_type_code,  # Use determined document type code
+                "conversation_status": "completed" if document_type != "New" else "pending",
+                "ready_for_sql_agent": True if document_type != "New" else False
             }
             
             # Save JSON file
@@ -231,8 +268,6 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     json_data.update({
                         "duckdb_table_name": duckdb_table_name,
                         "duckdb_loaded": True,
-                        "document_type": "New",
-                        "document_type_code": "new",
                         "is_current_version": True
                     })
                     
@@ -252,8 +287,6 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     json_data.update({
                         "duckdb_table_name": None,
                         "duckdb_loaded": False,
-                        "document_type": "New",
-                        "document_type_code": "new",
                         "is_current_version": True
                     })
                     
@@ -265,8 +298,6 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 json_data.update({
                     "duckdb_table_name": None,
                     "duckdb_loaded": False,
-                    "document_type": "New",
-                    "document_type_code": "new",
                     "is_current_version": True,
                     "duckdb_error": str(e)
                 })
@@ -296,10 +327,18 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 # Remove duplicates while preserving order
                 all_fields = list(dict.fromkeys(all_fields))
             
-            # Create JSON filename for this file
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+            # Find the actual JSON file that was created for this Excel file
+            import glob
             base_name = os.path.splitext(file.filename)[0]
-            json_filename = f"{base_name}_{timestamp}.json"
+            json_files = glob.glob(f"stored_queries/{base_name}_*.json")
+            
+            if json_files:
+                # Use the most recent JSON file
+                json_filename = os.path.basename(sorted(json_files)[-1])
+            else:
+                # Fallback: create new filename (shouldn't happen)
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                json_filename = f"{base_name}_{timestamp}.json"
             
             files_data.append({
                 "name": file.filename,  # Frontend expects 'name' property
@@ -360,72 +399,23 @@ async def chat_agent_conversation(request: Dict[str, Any]):
         with open(json_path, 'r') as f:
             json_data = json.load(f)
         
-        # Check if document type already exists and is not "New"
+        # Check document type and handle conversation flow accordingly
         document_type = json_data.get('document_type', '')
-        if document_type and document_type != "New" and document_type.strip():
-            # Document type exists - skip conversation and mark as ready for DuckDB
-            print(f"Document type '{document_type}' already exists - skipping conversation")
-            
-            # Create DuckDB table since document is already classified
-            try:
-                from duckdb_manager import dataframe_to_table
-                import pandas as pd
-                
-                # Read the Excel file to get the data
-                excel_filename = json_data.get('filename', '')
-                if excel_filename:
-                    excel_path = f"stored_queries/files/{excel_filename}"
-                    if os.path.exists(excel_path):
-                        # Read Excel file
-                        df = pd.read_excel(excel_path)
-                        
-                        # Generate simple, clean table name
-                        timestamp_short = json_data.get('upload_timestamp', '').replace('-', '').replace(':', '').replace(' ', '')
-                        duckdb_table_name = f"excel_data_{timestamp_short}"
-                        
-                        # Create DuckDB connection and table
-                        conn = create_memory_database()
-                        table_created = dataframe_to_table(conn, df, duckdb_table_name)
-                        conn.close()
-                        
-                        if table_created:
-                            print(f"✅ DuckDB table created: {duckdb_table_name}")
-                            json_data["duckdb_table_name"] = duckdb_table_name
-                            json_data["duckdb_loaded"] = True
-                        else:
-                            print(f"❌ Failed to create DuckDB table: {duckdb_table_name}")
-                            json_data["duckdb_table_name"] = None
-                            json_data["duckdb_loaded"] = False
-                            json_data["duckdb_error"] = "Table creation failed"
-                    else:
-                        print(f"❌ Excel file not found: {excel_path}")
-                        json_data["duckdb_error"] = f"Excel file not found: {excel_path}"
-                else:
-                    print(f"❌ No filename in JSON data")
-                    json_data["duckdb_error"] = "No filename in JSON data"
-                    
-            except Exception as e:
-                print(f"❌ DuckDB table creation failed: {e}")
-                json_data["duckdb_error"] = str(e)
-                json_data["duckdb_loaded"] = False
-            
-            # Mark as ready for DuckDB processing
-            json_data["ready_for_duckdb"] = True
-            json_data["conversation_status"] = "completed"
-            
-            # Save updated JSON
-            with open(json_path, 'w') as f:
-                json.dump(json_data, f, indent=2)
+        
+        # Check if document is already ready for SQL agent (from upload endpoint)
+        if json_data.get("ready_for_sql_agent", False):
+            document_type = json_data.get("document_type", "")
+            print(f"Document already ready for SQL agent: {document_type}")
             
             return {
                 "success": True,
                 "conversation_status": "completed",
-                "current_question": f"Document type '{document_type}' already classified. Ready for DuckDB processing.",
+                "current_question": f"You uploaded a {document_type} document - ready to query!",
                 "next_step": "complete",
                 "total_steps": 0,
                 "current_step": 0,
                 "json_data": json_data,
-                "message": "Document already classified - ready for DuckDB"
+                "message": f"Document identified as {document_type} - ready for SQL agent"
             }
         
         # Initialize conversation flow for new/unknown document types
@@ -511,14 +501,14 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                     from duckdb_manager import add_new_document_type
                     conn = create_memory_database()
                     
-                    # Get the normalized fields from the JSON
-                    normalized_fields = json_data.get('normalized_fields', [])
+                    # Get the original fields from the JSON (for registry matching)
+                    all_fields = json_data.get('fields', [])
                     
                     registry_updated = add_new_document_type(
                         conn,
                         document_type,
                         document_type_code,
-                        normalized_fields,
+                        all_fields,  # Use original field names for registry matching
                         True,  # reuse_regularly = True (assume all are reusable)
                         response_text  # Use the full response as description
                     )

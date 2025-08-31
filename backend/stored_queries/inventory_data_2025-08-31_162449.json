@@ -1,0 +1,73 @@
+{
+  "filename": "inventory_data.xlsx",
+  "sheets": {
+    "Sheet1": {
+      "fields": [
+        "Product ID",
+        "Product Name",
+        "Category",
+        "Stock Quantity",
+        "Unit Cost",
+        "Supplier",
+        "Last Updated"
+      ],
+      "normalized_fields": [
+        "Product_ID",
+        "Product_Name",
+        "Category",
+        "Stock_Quantity",
+        "Unit_Cost",
+        "Supplier",
+        "Last_Updated"
+      ],
+      "field_mapping": {
+        "Product ID": "Product_ID",
+        "Product Name": "Product_Name",
+        "Category": "Category",
+        "Stock Quantity": "Stock_Quantity",
+        "Unit Cost": "Unit_Cost",
+        "Supplier": "Supplier",
+        "Last Updated": "Last_Updated"
+      },
+      "types": {
+        "Product_ID": "int64",
+        "Product_Name": "object",
+        "Category": "object",
+        "Stock_Quantity": "int64",
+        "Unit_Cost": "float64",
+        "Supplier": "object",
+        "Last_Updated": "datetime64[ns]"
+      },
+      "row_count": 20
+    }
+  },
+  "fields": [
+    "Product ID",
+    "Product Name",
+    "Category",
+    "Stock Quantity",
+    "Unit Cost",
+    "Supplier",
+    "Last Updated"
+  ],
+  "normalized_fields": [
+    "Product_ID",
+    "Product_Name",
+    "Category",
+    "Stock_Quantity",
+    "Unit_Cost",
+    "Supplier",
+    "Last_Updated"
+  ],
+  "record_count": 20,
+  "upload_timestamp": "2025-08-31_162449",
+  "file_size": 5958,
+  "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "document_type": "Inventory management",
+  "document_type_code": "INVENTOR",
+  "conversation_status": "completed",
+  "ready_for_sql_agent": true,
+  "duckdb_table_name": "inventory_data_20250831_162449",
+  "duckdb_loaded": true,
+  "is_current_version": true
+}

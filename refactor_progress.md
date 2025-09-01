@@ -154,16 +154,25 @@ This document tracks the systematic refactoring of the Excel reporting POC accor
 ---
 
 ## ✅ TASK 7: Fix Upload Bug – Pass Array to `uploadFiles()`
-**Status:** 🔴 NOT STARTED
+**Status:** 🟢 COMPLETED
 
 ### Sub-steps:
-- [ ] Identify incorrect `FormData` usage in `FileUploader.js`
-- [ ] Change to pass raw `File[]` array instead
-- [ ] Test file upload functionality
-- [ ] Commit changes
+- [x] Identify incorrect `FormData` usage in `FileUploader.js`
+- [x] Change to pass raw `File[]` array instead
+- [x] Test file upload functionality
+- [x] Commit changes
 
 ### Files to modify:
 - `frontend/src/components/FileUploader.js`
+- `frontend/src/api/client.js`
+
+### Notes:
+- ✅ Fixed FormData double-wrapping bug in FileUploader.js
+- ✅ FileUploader now passes File[] array directly to uploadFiles()
+- ✅ uploadFiles() creates FormData internally as intended
+- ✅ Upload functionality tested and working correctly
+- ✅ Added error handling for browser extension interference
+- ✅ Upload returns proper JSON filename and metadata
 
 ---
 
@@ -286,12 +295,12 @@ Currently, when AgentChat asks "What type of document is this?" the agent doesn'
 ---
 
 ## Current Focus
-**Next Task:** TASK 7 - Fix Upload Bug – Pass Array to `uploadFiles()`
+**Next Task:** TASK 8 - Store Uploads in `localStorage` as "Recent Uploads"
 
 ---
 
 *Last Updated: 2025-09-01*
 *Total Tasks: 13*
-*Completed: 4*
+*Completed: 5*
 *In Progress: 0*
-*Remaining: 9*
+*Remaining: 8*

@@ -36,6 +36,12 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    // Filter out browser extension errors that don't affect our app
+    if (error.message && error.message.includes('message channel closed')) {
+      console.warn('Browser extension error (ignored):', error.message);
+      return Promise.reject(error);
+    }
+    
     console.error('API Response Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }

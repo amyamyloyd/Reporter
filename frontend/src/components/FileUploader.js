@@ -70,14 +70,9 @@ function FileUploader({ onFilesUploaded }) {
     setUploading(true);
     
     try {
-      // Create FormData for file upload
-      const formData = new FormData();
-      filesToUpload.forEach(file => {
-        formData.append('files', file);
-      });
-      
-      // Call API to upload files
-      const result = await uploadFiles(formData);
+      // Call API to upload files - pass File[] array directly
+      // uploadFiles() will create FormData internally
+      const result = await uploadFiles(filesToUpload);
       
       // Notify parent component of successful upload
       onFilesUploaded({

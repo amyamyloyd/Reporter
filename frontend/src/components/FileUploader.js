@@ -1,9 +1,35 @@
 /**
  * FileUploader Component - Phase 2A
- * Handles Excel file upload with validation
+ * Handles Excel file upload with validation and localStorage persistence
  */
 import React, { useState } from 'react';
 import { uploadFiles } from '../api/client';
+
+/**
+ * Utility function to retrieve recent uploads from localStorage
+ * @returns {Array} Array of recent upload objects
+ */
+export const getRecentUploads = () => {
+  try {
+    const recentUploads = localStorage.getItem('recentUploads');
+    return recentUploads ? JSON.parse(recentUploads) : [];
+  } catch (error) {
+    console.warn('Failed to retrieve recent uploads from localStorage:', error);
+    return [];
+  }
+};
+
+/**
+ * Utility function to clear recent uploads from localStorage
+ */
+export const clearRecentUploads = () => {
+  try {
+    localStorage.removeItem('recentUploads');
+    console.log('✅ Cleared recent uploads from localStorage');
+  } catch (error) {
+    console.warn('Failed to clear recent uploads from localStorage:', error);
+  }
+};
 
 function FileUploader({ onFilesUploaded }) {
   // State for file management
@@ -73,6 +99,39 @@ function FileUploader({ onFilesUploaded }) {
       // Call API to upload files - pass File[] array directly
       // uploadFiles() will create FormData internally
       const result = await uploadFiles(filesToUpload);
+      
+      // Store successful uploads in localStorage for "Recent Uploads" feature
+      if (result.success && result.files) {
+        try {
+          // Get existing recent uploads from localStorage
+          const existingUploads = JSON.parse(localStorage.getItem('recentUploads') || '[]');
+          
+          // Add new uploads to the beginning of the array (most recent first)
+          const newUploads = result.files.map(file => ({
+            ...file,
+            uploadTimestamp: new Date().toISOString(),
+            uploadDate: new Date().toLocaleDateString(),
+            uploadTime: new Date().toLocaleTimeString()
+          }));
+          
+          // Combine new uploads with existing ones, avoiding duplicates
+          const combinedUploads = [...newUploads, ...existingUploads.filter(existing => 
+            !newUploads.some(newUpload => newUpload.json_filename === existing.json_filename)
+          )];
+          
+          // Keep only the 20 most recent uploads to prevent localStorage bloat
+          const recentUploads = combinedUploads.slice(0, 20);
+          
+          // Save back to localStorage
+          localStorage.setItem('recentUploads', JSON.stringify(recentUploads));
+          
+          console.log(`✅ Stored ${newUploads.length} upload(s) in localStorage as recent uploads`);
+          
+        } catch (localStorageError) {
+          // Don't fail the upload if localStorage fails - just log the error
+          console.warn('Failed to store uploads in localStorage:', localStorageError);
+        }
+      }
       
       // Notify parent component of successful upload
       onFilesUploaded({

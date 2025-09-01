@@ -73,7 +73,8 @@ def create_document_registry_table(conn: duckdb.DuckDBPyConnection) -> bool:
                 created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 description VARCHAR,
-                example_filename VARCHAR
+                example_filename VARCHAR,
+                latest_version VARCHAR DEFAULT '1.0'
             )
         """)
         
@@ -482,3 +483,122 @@ def verify_table_data(conn: duckdb.DuckDBPyConnection, table_name: str, expected
     except Exception as e:
         print(f"Error verifying table data for {table_name}: {e}")
         return False
+
+def manage_document_version(conn: duckdb.DuckDBPyConnection, document_type_code: str, fields_string: str, is_new_document: bool = False) -> Dict[str, Any]:
+    """
+    Manage document versioning for uploads
+    
+    This function handles version management for both new and existing document types:
+    - New documents: Set version to "1.0"
+    - Existing documents: Increment version (1.0 → 2.0 → 3.0)
+    - Update registry with latest version
+    - Return version information for JSON files
+    
+    Args:
+        conn: DuckDB connection
+        document_type_code: Short code for document type (e.g., "EDR", "CFR")
+        fields_string: Field pattern string for matching
+        is_new_document: True if this is a new document type, False if existing
+        
+    Returns:
+        Dict with version information and update status
+        
+    Example:
+        version_info = manage_document_version(conn, "EDR", "First Name|Last Name|Salary", False)
+        # Returns: {"version": "2.0", "registry_updated": True, "previous_version": "1.0"}
+    """
+    try:
+        if is_new_document:
+            # New document type: set version to 1.0
+            version = "1.0"
+            previous_version = None
+            
+            # For new documents, we need to check if record exists
+            check_result = conn.execute("""
+                SELECT COUNT(*) FROM doc_registry WHERE document_type_code = ?
+            """, [document_type_code]).fetchone()
+            
+            if check_result[0] == 0:
+                # Record doesn't exist yet - this is expected for new document types
+                # The record will be created later by the upload endpoint or agent chat
+                print(f"📝 New document type '{document_type_code}' not yet in registry - version will be 1.0")
+                return {
+                    "version": version,
+                    "previous_version": previous_version,
+                    "registry_updated": True,  # Mark as successful since this is expected
+                    "document_type_code": document_type_code,
+                    "is_new_document": is_new_document
+                }
+            else:
+                # Record exists, update it
+                conn.execute("""
+                    UPDATE doc_registry 
+                    SET latest_version = ?, updated_date = CURRENT_TIMESTAMP
+                    WHERE document_type_code = ?
+                """, [version, document_type_code])
+                
+                print(f"✅ New document type '{document_type_code}' version set to {version}")
+            
+        else:
+            # Existing document type: increment version
+            # Get current version from registry
+            result = conn.execute("""
+                SELECT latest_version 
+                FROM doc_registry 
+                WHERE document_type_code = ?
+            """, [document_type_code]).fetchone()
+            
+            if result and result[0]:
+                current_version = result[0]
+                # Parse version string (e.g., "1.0" → 1, "2.0" → 2)
+                try:
+                    major_version = int(current_version.split('.')[0])
+                    new_version = f"{major_version + 1}.0"
+                except (ValueError, IndexError):
+                    # Fallback: if version parsing fails, start at 2.0
+                    new_version = "2.0"
+                    current_version = "1.0"
+            else:
+                # No version found, start at 2.0
+                new_version = "2.0"
+                current_version = "1.0"
+            
+            version = new_version
+            previous_version = current_version
+            
+            # Update registry with new version
+            conn.execute("""
+                UPDATE doc_registry 
+                SET latest_version = ?, updated_date = CURRENT_TIMESTAMP
+                WHERE document_type_code = ?
+            """, [version, document_type_code])
+            
+            print(f"✅ Document type '{document_type_code}' version incremented: {current_version} → {version}")
+        
+        # Verify the update
+        verify_result = conn.execute("""
+            SELECT latest_version 
+            FROM doc_registry 
+            WHERE document_type_code = ?
+        """, [document_type_code]).fetchone()
+        
+        registry_updated = verify_result and verify_result[0] == version
+        
+        return {
+            "version": version,
+            "previous_version": previous_version,
+            "registry_updated": registry_updated,
+            "document_type_code": document_type_code,
+            "is_new_document": is_new_document
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in manage_document_version: {e}")
+        return {
+            "version": "1.0",  # Fallback version
+            "previous_version": None,
+            "registry_updated": False,
+            "error": str(e),
+            "document_type_code": document_type_code,
+            "is_new_document": is_new_document
+        }

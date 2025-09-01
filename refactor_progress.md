@@ -60,16 +60,28 @@ This document tracks the systematic refactoring of the Excel reporting POC accor
 **Status:** 🔴 NOT STARTED
 
 ### Sub-steps:
-- [ ] Add `duckdb_table_name` field
-- [ ] Add `duckdb_loaded` field
-- [ ] Add `data_version` field (from filename or fallback)
-- [ ] Add `document_type_code` field (short lowercase code)
-- [ ] Ensure `is_current_version` field exists
-- [ ] Test JSON structure validation
+- [ ] Add `latest_version` column to doc_registry table
+- [ ] Create `manage_document_version()` function in duckdb_manager.py
+- [ ] Update upload endpoint to call version function for known documents
+- [ ] Update agent chat to call version function for new documents
+- [ ] Add `version` field to JSON metadata for both flows
+- [ ] Test version increment logic for known document types
+- [ ] Test version creation (1.0) for new document types
+- [ ] Test JSON structure validation with version field
 - [ ] Commit changes
 
 ### Files to modify:
-- `backend/app.py`
+- `backend/app.py` (update both upload and chat-agent endpoints)
+- `backend/duckdb_manager.py` (add version management function and table schema)
+- `backend/stored_queries/*.json` (add version field to metadata)
+
+### Implementation Plan:
+1. **Database Schema Update**: Add `latest_version VARCHAR DEFAULT '1.0'` to doc_registry
+2. **Shared Function**: Create `manage_document_version()` for version logic
+3. **Known Document Flow**: Upload endpoint calls version function, increments version
+4. **New Document Flow**: Agent chat calls version function, sets version to 1.0
+5. **JSON Updates**: Add `version` field to all JSON metadata files
+6. **Registry Updates**: Update `latest_version` in doc_registry for both flows
 
 ---
 

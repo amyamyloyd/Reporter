@@ -155,8 +155,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
         if not validation["valid_files"]:
             raise HTTPException(status_code=400, detail="No valid files provided")
         
-        # Create in-memory database for session (Phase 1 foundation)
-        db_conn = create_memory_database()
+        # Create persistent database for session (Phase 1 foundation)
+        db_conn = create_persistent_database()
         
         # Create JSON file for each uploaded file
         import json
@@ -202,6 +202,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
             # STEP 3: Check if document type already exists by comparing fields
             document_type = "New"
             document_type_code = "new"
+            is_new_document = True
+            version = "1.0"
             
             try:
                 # Check if doc_registry table exists and query for matching document types
@@ -220,6 +222,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 if match:
                     document_type = match[0]
                     document_type_code = match[1]
+                    is_new_document = False
                     print(f"✅ Document type match found: {document_type} ({document_type_code})")
                     print(f"✅ Fields matched: {', '.join(all_fields)}")
                 else:
@@ -231,6 +234,30 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 print(f"📝 Falling back to New document type")
                 document_type = "New"
                 document_type_code = "new"
+                is_new_document = True
+            
+            # STEP 3.5: Manage document versioning
+            try:
+                from duckdb_manager import manage_document_version
+                
+                # Call version management function
+                version_info = manage_document_version(
+                    db_conn, 
+                    document_type_code, 
+                    fields_string, 
+                    is_new_document
+                )
+                
+                if version_info.get("registry_updated"):
+                    version = version_info.get("version", "1.0")
+                    print(f"✅ Version management successful: {document_type_code} → {version}")
+                else:
+                    print(f"⚠️ Version management failed: {version_info.get('error', 'Unknown error')}")
+                    version = "1.0"  # Fallback
+                    
+            except Exception as e:
+                print(f"❌ Version management error: {e}")
+                version = "1.0"  # Fallback
             
             # Create JSON structure
             json_data = {
@@ -244,6 +271,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "content_type": file.content_type,
                 "document_type": document_type,  # Use determined document type
                 "document_type_code": document_type_code,  # Use determined document type code
+                "version": version,  # Add version field from version management
                 "conversation_status": "completed" if document_type != "New" else "pending",
                 "ready_for_sql_agent": True if document_type != "New" else False
             }
@@ -991,6 +1019,100 @@ async def get_analysis(session_id: str):
     except Exception as e:
         print(f"Error retrieving analysis: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve analysis: {str(e)}")
+
+@app.get("/doc-registry")
+async def get_doc_registry():
+    """
+    Display the contents of the doc_registry table
+    
+    Returns:
+        Dict with document registry contents and metadata
+    """
+    try:
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if doc_registry table exists
+        table_exists = conn.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_name = 'doc_registry'
+        """).fetchone()[0]
+        
+        if table_exists == 0:
+            return {
+                "success": True,
+                "message": "doc_registry table does not exist yet",
+                "registry": [],
+                "count": 0,
+                "table_exists": False
+            }
+        
+        # Get all records from doc_registry
+        registry_result = conn.execute("""
+            SELECT 
+                id,
+                document_type,
+                document_type_code,
+                field_pattern,
+                reuse_regularly,
+                created_date,
+                updated_date,
+                description,
+                example_filename,
+                latest_version
+            FROM doc_registry 
+            ORDER BY created_date DESC
+        """).fetchall()
+        
+        # Convert to list of dictionaries for JSON serialization
+        registry_data = []
+        for row in registry_result:
+            registry_data.append({
+                "id": row[0],
+                "document_type": row[1],
+                "document_type_code": row[2],
+                "field_pattern": row[3],
+                "reuse_regularly": bool(row[4]),
+                "created_date": row[5],
+                "updated_date": row[6],
+                "description": row[7],
+                "example_filename": row[8],
+                "latest_version": row[9]
+            })
+        
+        # Get table schema information
+        schema_result = conn.execute("DESCRIBE doc_registry").fetchall()
+        schema_info = []
+        for col in schema_result:
+            schema_info.append({
+                "column_name": col[0],
+                "data_type": col[1],
+                "nullable": col[2] if len(col) > 2 else None,
+                "default": col[3] if len(col) > 3 else None
+            })
+        
+        # Close database connection
+        conn.close()
+        
+        return {
+            "success": True,
+            "message": f"Retrieved {len(registry_data)} document types from registry",
+            "registry": registry_data,
+            "count": len(registry_data),
+            "table_exists": True,
+            "schema": schema_info,
+            "table_info": {
+                "name": "doc_registry",
+                "total_records": len(registry_data)
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error retrieving doc_registry: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve doc_registry: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

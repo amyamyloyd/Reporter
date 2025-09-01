@@ -23,3 +23,14 @@ Thumbs.db
 # Logs
 *.log
 backend/.cache/
+
+# Data files (don't track)
+*.xlsx
+*.xls
+*.json
+backend/stored_queries/files/
+backend/stored_queries/*.json
+
+# Keep DuckDB files
+!*.db
+!*.duckdb

@@ -12,22 +12,28 @@ This document tracks the systematic refactoring of the Excel reporting POC accor
 ---
 
 ## ✅ TASK 1: Use Persistent DuckDB Connection
-**Status:** 🔴 NOT STARTED
+**Status:** 🟢 COMPLETED
 
 ### Sub-steps:
-- [ ] Rename `create_memory_database()` to `create_persistent_database()` in `duckdb_manager.py`
-- [ ] Change connection from `:memory:` to `excel_reporting.db`
-- [ ] Update all function calls to use new name
-- [ ] Test persistent storage across sessions
-- [ ] Commit changes
+- [x] Rename `create_memory_database()` to `create_persistent_database()` in `duckdb_manager.py`
+- [x] Change connection from `:memory:` to `excel_reporting.db`
+- [x] Update all function calls to use new name
+- [x] Test persistent storage across sessions
+- [x] Commit changes
 
 ### Files to modify:
 - `backend/duckdb_manager.py`
 
+### Notes:
+- ✅ Persistent database connection working correctly
+- ✅ Upload endpoint functional with persistent storage
+- ✅ Data persists across backend restarts
+- ✅ Fixed corrupted database file issue
+
 ---
 
 ## ✅ TASK 2: Standardize DuckDB Table Naming
-**Status:** 🔴 NOT STARTED
+**Status:** 🟡 UPDATED (Standardization Deferred)
 
 ### Sub-steps:
 - [ ] Create table naming function (inline or in utils.py)
@@ -41,6 +47,12 @@ This document tracks the systematic refactoring of the Excel reporting POC accor
 - `backend/app.py`
 - `backend/duckdb_manager.py`
 - `backend/utils.py` (if created)
+
+### Notes:
+- ✅ Table naming currently uses `<filename>_<timestamp>` (e.g., `employees_20250901102448`)
+- 🟡 Standardized naming with document type code is **deferred**
+- ✅ Upload endpoint and all current features work as expected
+- 🟡 Will enforce new naming convention in future features or refactors as needed
 
 ---
 
@@ -239,12 +251,12 @@ Currently, when AgentChat asks "What type of document is this?" the agent doesn'
 ---
 
 ## Current Focus
-**Next Task:** TASK 1 - Use Persistent DuckDB Connection
+**Next Task:** TASK 2 - Standardize DuckDB Table Naming
 
 ---
 
 *Last Updated: 2025-09-01*
 *Total Tasks: 13*
-*Completed: 0*
+*Completed: 1*
 *In Progress: 1*
-*Remaining: 12*
+*Remaining: 11*

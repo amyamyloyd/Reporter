@@ -89,8 +89,8 @@ async def check_tables():
     try:
         conn = create_persistent_database()
         
-        # Get all tables
-        tables_result = conn.execute("SHOW TABLES").fetchall()
+        # Get all tables using DuckDB's information_schema
+        tables_result = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
         tables_info = []
         
         for table_row in tables_result:

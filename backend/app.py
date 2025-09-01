@@ -1,22 +1,60 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 import json
 import re
 from datetime import datetime
 from dotenv import load_dotenv
+import pandas as pd
+import duckdb
+from pathlib import Path
 
 # Import Phase 1 modules
 from excel_processor import extract_file_metadata_from_saved_file, validate_excel_files
-from duckdb_manager import create_memory_database
+from duckdb_manager import create_persistent_database
 
 # Import Phase 2A modules
 from agents.file_analyzer import analyze_single_file
 
 # Load environment variables
 load_dotenv()
+
+def generate_standard_table_name(filename: str, document_type_code: str, timestamp: str) -> str:
+    """
+    Generate standardized DuckDB table name in format: filename_document_type_code_YYYYMMDD_HHMMSS
+    
+    Args:
+        filename: Original Excel filename (without extension)
+        document_type_code: Short lowercase document type code (e.g., 'gl', 'campaign')
+        timestamp: Upload timestamp in format 'YYYY-MM-DD_HHMMSS'
+    
+    Returns:
+        Standardized table name safe for DuckDB
+    """
+    # Clean filename (remove spaces, special chars, keep alphanumeric and underscores)
+    clean_filename = re.sub(r'[^a-zA-Z0-9_]', '_', filename)
+    
+    # Clean document type code (ensure lowercase, alphanumeric only)
+    clean_doc_code = re.sub(r'[^a-zA-Z0-9]', '', document_type_code.lower())
+    
+    # Clean timestamp (remove non-alphanumeric chars)
+    clean_timestamp = re.sub(r'[^0-9]', '', timestamp)
+    
+    # Ensure table name starts with letter (DuckDB requirement)
+    if clean_filename and clean_filename[0].isdigit():
+        clean_filename = 'tbl_' + clean_filename
+    
+    # Generate final table name
+    table_name = f"{clean_filename}_{clean_doc_code}_{clean_timestamp}"
+    
+    # Final validation - ensure table name is valid for DuckDB
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        # If still invalid, use completely safe fallback
+        table_name = f"excel_data_{clean_timestamp}"
+    
+    return table_name
 
 # Create FastAPI app
 app = FastAPI(title="AI Excel Reporting API", version="1.0.0")
@@ -33,6 +71,8 @@ app.add_middleware(
 # In-memory storage for analysis results (session-based)
 analysis_storage = {}
 
+
+
 @app.get("/")
 async def root():
     """Root endpoint"""
@@ -47,7 +87,7 @@ async def health_check():
 async def check_tables():
     """Check what tables exist in DuckDB and their structure"""
     try:
-        conn = create_memory_database()
+        conn = create_persistent_database()
         
         # Get all tables
         tables_result = conn.execute("SHOW TABLES").fetchall()
@@ -434,7 +474,7 @@ async def chat_agent_conversation(request: Dict[str, Any]):
             },
             {
                 "step": 3,
-                "question": f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). The document is now ready for DuckDB processing and SQL queries.",
+                "question": "Ready to complete analysis",
                 "field": "analysis_complete",
                 "next_step": "complete"
             }
@@ -459,84 +499,171 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                 
                 json_data[field_name] = True
             elif field_name == "document_type_and_description":
-                # Parse user response to extract document type and description
+                # Use LLM classification instead of regex patterns
                 response_text = user_response.strip()
                 
-                # Try to extract document type (first part before any punctuation or "and")
-                # Look for common document type patterns
-                doc_type_patterns = [
-                    r'^([A-Za-z\s]+?)(?:\s+and|\s*[,;]\s*|\s*[-–]\s*|\s*\(|$)',
-                    r'^([A-Za-z\s]+?)(?:\s+description|\s+purpose|\s+is\s+a|\s+for)',
-                    r'^([A-Za-z\s]+?)(?:\s+data|\s+records|\s+file)'
-                ]
-                
-                document_type = None
-                for pattern in doc_type_patterns:
-                    match = re.search(pattern, response_text)
-                    if match:
-                        document_type = match.group(1).strip()
-                        break
-                
-                # If no pattern match, take first 2-3 words as document type
-                if not document_type:
-                    words = response_text.split()
-                    if len(words) >= 2:
-                        document_type = ' '.join(words[:2]).strip()
-                    else:
-                        document_type = response_text[:50].strip()  # Fallback
-                
-                # Generate document type code (short version)
-                document_type_code = document_type.replace(' ', '').upper()[:8]
-                
-                # Store both document type and description
-                json_data["document_type"] = document_type
-                json_data["document_type_code"] = document_type_code
-                json_data["user_description"] = response_text
-                json_data["ready_for_duckdb"] = True
-                
-                print(f"Extracted document type: '{document_type}' with code: '{document_type_code}'")
-                
-                # Update document registry with the new document type
                 try:
-                    from duckdb_manager import add_new_document_type
-                    conn = create_memory_database()
+                    # Call the new LLM classification endpoint
+                    from openai import OpenAI
                     
-                    # Get the original fields from the JSON (for registry matching)
-                    all_fields = json_data.get('fields', [])
+                    # Initialize OpenAI client
+                    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
                     
-                    registry_updated = add_new_document_type(
-                        conn,
-                        document_type,
-                        document_type_code,
-                        all_fields,  # Use original field names for registry matching
-                        True,  # reuse_regularly = True (assume all are reusable)
-                        response_text  # Use the full response as description
+                    # Create system prompt for document classification
+                    system_prompt = """You are an expert document classifier for business data files.
+
+Your task is to analyze a user's description of a document and determine:
+1. A professional, clear document type name
+2. A unique, short code (3-5 characters) for the document type
+3. A concise description of the document's purpose
+
+Guidelines:
+- Document type names should be professional and descriptive (e.g., "Weekly Sales Report", "General Ledger", "Vendor Reference")
+- Codes must be unique and memorable (e.g., "WSR", "GL", "VR")
+- Descriptions should be 1-2 sentences explaining the document's business purpose
+- Be specific but not overly verbose
+
+Return your response as valid JSON with these exact fields:
+{
+  "document_type": "Professional Document Type Name",
+  "document_type_code": "XXX",
+  "description": "Clear description of the document's purpose and use case"
+}"""
+
+                    # Create user prompt
+                    user_prompt = f"""Please classify this document based on the user's description:
+
+User Description: "{response_text}"
+
+Analyze the description and provide a professional document classification."""
+
+                    # Call OpenAI API
+                    response = client.chat.completions.create(
+                        model="gpt-4",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        max_tokens=200,
+                        temperature=0.1
                     )
                     
-                    if registry_updated:
-                        print(f"✅ Document type '{document_type}' added to registry")
-                    else:
-                        print(f"⚠️  Failed to add document type to registry")
-                        
-                    conn.close()
+                    # Extract response content
+                    ai_response = response.choices[0].message.content.strip()
                     
+                    # Parse JSON response
+                    try:
+                        classification = json.loads(ai_response)
+                        
+                        # Validate required fields
+                        required_fields = ["document_type", "document_type_code", "description"]
+                        for field in required_fields:
+                            if field not in classification:
+                                raise ValueError(f"Missing required field: {field}")
+                        
+                        # Store AI classification results
+                        document_type = classification["document_type"]
+                        document_type_code = classification["document_type_code"]
+                        ai_description = classification["description"]
+                        
+                        json_data["document_type"] = document_type
+                        json_data["document_type_code"] = document_type_code
+                        json_data["ai_description"] = ai_description
+                        json_data["user_description"] = response_text
+                        json_data["ready_for_duckdb"] = True
+                        
+                        print(f"✅ AI Classification successful: {document_type} ({document_type_code})")
+                        
+                        # Update document registry with the new document type
+                        try:
+                            from duckdb_manager import add_new_document_type
+                            conn = create_persistent_database()
+                            
+                            # Get the original fields from the JSON (for registry matching)
+                            all_fields = json_data.get('fields', [])
+                            
+                            registry_updated = add_new_document_type(
+                                conn,
+                                document_type,
+                                document_type_code,
+                                all_fields,  # Use original field names for registry matching
+                                True,  # reuse_regularly = True (assume all are reusable)
+                                ai_description  # Use AI-generated description
+                            )
+                            
+                            if registry_updated:
+                                print(f"✅ Document type '{document_type}' added to registry")
+                            else:
+                                print(f"⚠️  Failed to add document type to registry")
+                                
+                            conn.close()
+                            
+                        except Exception as e:
+                            print(f"⚠️  Registry update failed: {e}")
+                            # Continue even if registry update fails
+                        
+                    except json.JSONDecodeError as e:
+                        print(f"❌ Failed to parse AI response as JSON: {e}")
+                        print(f"AI Response: {ai_response}")
+                        
+                        # Fallback: create basic classification
+                        words = response_text.split()
+                        if len(words) >= 2:
+                            fallback_type = ' '.join(words[:2]).strip()
+                        else:
+                            fallback_type = response_text[:50].strip()
+                        
+                        fallback_code = fallback_type.replace(' ', '').upper()[:5]
+                        
+                        json_data["document_type"] = fallback_type
+                        json_data["document_type_code"] = fallback_code
+                        json_data["ai_description"] = f"Document classified as {fallback_type} based on user description"
+                        json_data["user_description"] = response_text
+                        json_data["ready_for_duckdb"] = True
+                        
+                        print(f"⚠️  Using fallback classification: {fallback_type} ({fallback_code})")
+                        
                 except Exception as e:
-                    print(f"⚠️  Registry update failed: {e}")
-                    # Continue even if registry update fails
+                    print(f"❌ LLM classification failed: {e}")
+                    
+                    # Ultimate fallback
+                    fallback_type = "Unknown Document Type"
+                    fallback_code = "UNK"
+                    
+                    json_data["document_type"] = fallback_type
+                    json_data["document_type_code"] = fallback_code
+                    json_data["ai_description"] = "Document classification failed - using fallback"
+                    json_data["user_description"] = response_text
+                    json_data["ready_for_duckdb"] = True
+                    
+                    print(f"⚠️  Using ultimate fallback: {fallback_type} ({fallback_code})")
                 
             elif field_name == "analysis_complete":
                 json_data[field_name] = True
+                json_data["ready_for_sql_agent"] = True
             
-            # Update conversation history
+            # Update conversation history with enhanced information
             if "conversation_history" not in json_data:
                 json_data["conversation_history"] = []
             
-            json_data["conversation_history"].append({
+            # Create conversation history entry
+            history_entry = {
                 "step": conversation_step,
                 "question": current_step["question"],
                 "user_response": user_response,
                 "timestamp": datetime.now().isoformat()
-            })
+            }
+            
+            # Add LLM response if this was a document classification step
+            if field_name == "document_type_and_description":
+                if "ai_description" in json_data:
+                    history_entry["llm_response"] = {
+                        "document_type": json_data.get("document_type"),
+                        "document_type_code": json_data.get("document_type_code"),
+                        "ai_description": json_data.get("ai_description")
+                    }
+            
+            json_data["conversation_history"].append(history_entry)
             
             # Save updated JSON
             with open(json_path, 'w') as f:
@@ -558,14 +685,21 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                 current_question = conversation_flow[1]["question"]
                 conversation_status = "in_progress"
             elif conversation_step == 2:
-                # After step 2, show step 3 question
-                next_step = 3
-                current_question = conversation_flow[2]["question"]
-                conversation_status = "in_progress"
+                # After step 2, check if document classification is complete
+                if json_data.get('document_type') and json_data.get('document_type_code'):
+                    # Document classification is complete, show step 3
+                    next_step = 3
+                    current_question = f"Great! So this is a {json_data.get('document_type')} ({json_data.get('document_type_code')}) - ready to query, create a report, or do you have another file to upload? This document is being saved as {json_data.get('document_type')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json"
+                    conversation_status = "in_progress"
+                else:
+                    # Still waiting for document classification response
+                    next_step = 2
+                    current_question = "Please provide a description of what type of document this is."
+                    conversation_status = "waiting_for_input"
             elif conversation_step == 3:
-                # After step 3, complete
+                # After step 3, show completion message
                 next_step = "complete"
-                current_question = f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). The document is now ready for DuckDB processing and SQL queries."
+                current_question = f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). This document is being saved as {json_data.get('document_type', 'document')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json. The document is now ready for DuckDB processing and SQL queries."
                 conversation_status = "completed"
                 json_data["analysis_complete"] = True
                 json_data["ready_for_duckdb"] = True
@@ -583,35 +717,15 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                             # Read Excel file
                             df = pd.read_excel(excel_path)
                             
-                            # Generate safe table name
+                            # Generate simple, clean table name
                             timestamp_short = json_data.get('upload_timestamp', '').replace('-', '').replace(':', '').replace(' ', '')
                             
-                            # Create a safe table name from document_type
-                            document_type = json_data.get('document_type', '')
-                            if document_type and document_type != "New":
-                                # Use first 2-3 words of document type, sanitized
-                                words = document_type.split()[:3]
-                                safe_type = '_'.join(words).lower()
-                                safe_type = re.sub(r'[^a-zA-Z0-9_]', '_', safe_type)
-                            else:
-                                # Fallback to generic name
-                                safe_type = "excel_data"
-                            
-                            # Ensure table name starts with letter and is valid
-                            if safe_type and safe_type[0].isdigit():
-                                safe_type = 'tbl_' + safe_type
-                            
-                            duckdb_table_name = f"{safe_type}_{timestamp_short}"
-                            
-                            # Final validation - ensure table name is valid
-                            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', duckdb_table_name):
-                                # If still invalid, use a completely safe fallback
-                                duckdb_table_name = f"excel_data_{timestamp_short}"
+                            duckdb_table_name = f"excel_data_{timestamp_short}"
                             
                             print(f"Generated table name: {duckdb_table_name}")
                             
                             # Create DuckDB connection and table
-                            conn = create_memory_database()
+                            conn = create_persistent_database()
                             table_created = dataframe_to_table(conn, df, duckdb_table_name)
                             conn.close()
                             
@@ -662,6 +776,125 @@ async def chat_agent_conversation(request: Dict[str, Any]):
     except Exception as e:
         print(f"Error in chat agent conversation: {e}")
         raise HTTPException(status_code=500, detail=f"Chat agent conversation failed: {str(e)}")
+
+@app.post("/classify-document")
+async def classify_document(request: Dict[str, Any]):
+    """
+    Classify document type using OpenAI LLM based on user description
+    
+    This endpoint takes a user's description of a document and uses OpenAI
+    to automatically determine the document type, generate a unique code,
+    and create a professional description.
+    
+    Args:
+        request: Dict containing user_description
+        
+    Returns:
+        Dict with AI-determined document classification
+    """
+    try:
+        # Extract user description
+        user_description = request.get("user_description", "").strip()
+        
+        if not user_description:
+            raise HTTPException(status_code=400, detail="Missing user_description")
+        
+        # Import OpenAI client
+        from openai import OpenAI
+        import os
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Create system prompt for document classification
+        system_prompt = """You are an expert document classifier for business data files.
+
+Your task is to analyze a user's description of a document and determine:
+1. A professional, clear document type name
+2. A unique, short code (3-5 characters) for the document type
+3. A concise description of the document's purpose
+
+Guidelines:
+- Document type names should be professional and descriptive (e.g., "Weekly Sales Report", "General Ledger", "Vendor Reference")
+- Codes must be unique and memorable (e.g., "WSR", "GL", "VR")
+- Descriptions should be 1-2 sentences explaining the document's business purpose
+- Be specific but not overly verbose
+
+Return your response as valid JSON with these exact fields:
+{
+  "document_type": "Professional Document Type Name",
+  "document_type_code": "XXX",
+  "description": "Clear description of the document's purpose and use case"
+}"""
+
+        # Create user prompt
+        user_prompt = f"""Please classify this document based on the user's description:
+
+User Description: "{user_description}"
+
+Analyze the description and provide a professional document classification."""
+
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        # Extract response content
+        ai_response = response.choices[0].message.content.strip()
+        
+        # Parse JSON response
+        try:
+            classification = json.loads(ai_response)
+            
+            # Validate required fields
+            required_fields = ["document_type", "document_type_code", "description"]
+            for field in required_fields:
+                if field not in classification:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # Ensure document type code is unique
+            # TODO: Implement uniqueness check against existing codes
+            
+            print(f"✅ AI Classification successful: {classification['document_type']} ({classification['document_type_code']})")
+            
+            return {
+                "success": True,
+                "classification": classification,
+                "ai_response": ai_response
+            }
+            
+        except json.JSONDecodeError as e:
+            print(f"❌ Failed to parse AI response as JSON: {e}")
+            print(f"AI Response: {ai_response}")
+            
+            # Fallback: create basic classification
+            words = user_description.split()
+            if len(words) >= 3:
+                fallback_type = " ".join(words[:3]).title()
+            else:
+                fallback_type = user_description.title()
+            fallback_code = fallback_type.replace(" ", "")[:5].upper()
+            
+            return {
+                "success": True,
+                "classification": {
+                    "document_type": fallback_type,
+                    "document_type_code": fallback_code,
+                    "description": f"Document classified as {fallback_type} based on user description"
+                },
+                "ai_response": ai_response,
+                "fallback_used": True
+            }
+            
+    except Exception as e:
+        print(f"❌ Document classification failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Document classification failed: {str(e)}")
 
 @app.post("/save-analysis")
 async def save_analysis(analysis: Dict[str, Any]):

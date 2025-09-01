@@ -7,23 +7,24 @@ from typing import Optional, List, Dict, Any
 import re
 import os
 
-def create_memory_database() -> duckdb.DuckDBPyConnection:
+def create_persistent_database() -> duckdb.DuckDBPyConnection:
     """
     Create persistent DuckDB connection for data persistence
     
-    Changed from in-memory to persistent storage to maintain data between sessions.
-    Uses 'excel_reporting.db' file for long-term storage in production.
+    Creates a persistent DuckDB connection using 'excel_reporting.db' file
+    to maintain data between user sessions. This replaces the previous
+    in-memory approach for better data persistence.
     
     Returns:
-        DuckDB connection objectu
+        DuckDB connection object
         
     Example:
-        conn = create_memory_database()
+        conn = create_persistent_database()
         # Use connection for persistent data storage
         conn.close()  # Always close when done
     """
     try:
-        # Create persistent DuckDB connection instead of in-memory
+        # Create persistent DuckDB connection using excel_reporting.db
         # This ensures data persists between user sessions
         # Production database name: excel_reporting.db
         import os

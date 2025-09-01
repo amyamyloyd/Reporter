@@ -392,6 +392,52 @@ Centralize reusable logic used across `app.py`, `file_analyzer.py`, and other mo
 
 ---
 
+## ✅ TASK 13: Fix Document Classification Bug - Add LLM Classification Endpoint
+
+### Goal
+
+Fix the current bug where AgentChat asks for document type but doesn't use AI to automatically classify it from the user's description.
+
+### Current Behavior & Code
+
+When AgentChat asks "What type of document is this?" the agent requires manual document type selection instead of using AI classification.
+
+### Recommended Behavior
+
+Create a new backend endpoint `/classify-document` that:
+1. Takes user description as input
+2. Calls OpenAI 4.0 to analyze and classify the document
+3. Returns structured response with document type, unique code, and description
+4. Saves complete conversation history including LLM responses to JSON metadata
+
+### Location
+
+* File: `backend/app.py` - new endpoint
+* File: `frontend/src/components/AgentChat.js` - update to call endpoint
+* File: `backend/stored_queries/*.json` - update metadata structure
+
+### Instructions
+
+* Create `/classify-document` POST endpoint that accepts user description
+* Use OpenAI API to determine document type from description
+* Generate unique short codes (e.g., "WSR" for Weekly Sales Report)
+* Return structured response with classification results
+* Update AgentChat.js to call this endpoint
+* Save conversation history with LLM responses to JSON
+* Ensure document type codes are unique across all files
+
+### Example Flow
+
+1. User uploads file → Agent shows field analysis
+2. Agent asks: "What type of document is this? Please describe its purpose"
+3. User responds: "weekly sales report for tracking leads"
+4. Frontend calls `/classify-document` with user description
+5. LLM returns: `{"document_type": "Weekly Sales Report", "document_type_code": "WSR", "description": "Weekly sales report for tracking leads and performance metrics"}`
+6. Agent confirms: "Great! So this is a Weekly Sales Report (WSR) - ready to query, create a report, or do you have another file to upload?"
+7. Save to JSON metadata including conversation history and LLM response
+
+---
+
 ## Final Instructions to Engineer
 
 * Implement each change **exactly as described**

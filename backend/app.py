@@ -166,6 +166,9 @@ async def upload_files(files: List[UploadFile] = File(...)):
         # Ensure the files directory exists
         os.makedirs("stored_queries/files", exist_ok=True)
         
+        # Track JSON filenames for response
+        json_filenames = []
+        
         for file in validation["valid_files"]:
             
             # Create unique filename with timestamp
@@ -282,6 +285,12 @@ async def upload_files(files: List[UploadFile] = File(...)):
             
             print(f"Created JSON file: {json_path}")
             
+            # Track the JSON filename for response
+            json_filenames.append({
+                "excel_filename": excel_filename,
+                "json_filename": json_filename
+            })
+            
             # VERIFY: Check if saved Excel file is valid before proceeding
             import os
             if os.path.exists(excel_path):
@@ -395,18 +404,26 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 # Remove duplicates while preserving order
                 all_fields = list(dict.fromkeys(all_fields))
             
-            # Find the actual JSON file that was created for this Excel file
-            import glob
-            base_name = os.path.splitext(file.filename)[0]
-            json_files = glob.glob(f"stored_queries/{base_name}_*.json")
+            # Get the JSON filename from our tracked list (more efficient than glob search)
+            json_filename = None
+            for json_info in json_filenames:
+                if json_info["excel_filename"] == file.filename:
+                    json_filename = json_info["json_filename"]
+                    break
             
-            if json_files:
-                # Use the most recent JSON file
-                json_filename = os.path.basename(sorted(json_files)[-1])
-            else:
-                # Fallback: create new filename (shouldn't happen)
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                json_filename = f"{base_name}_{timestamp}.json"
+            # Fallback: if not found in tracking (shouldn't happen), use glob search
+            if not json_filename:
+                import glob
+                base_name = os.path.splitext(file.filename)[0]
+                json_files = glob.glob(f"stored_queries/{base_name}_*.json")
+                
+                if json_files:
+                    # Use the most recent JSON file
+                    json_filename = os.path.basename(sorted(json_files)[-1])
+                else:
+                    # Final fallback: create new filename (shouldn't happen)
+                    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                    json_filename = f"{base_name}_{timestamp}.json"
             
             files_data.append({
                 "name": file.filename,  # Frontend expects 'name' property

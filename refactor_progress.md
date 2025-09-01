@@ -133,16 +133,23 @@ This document tracks the systematic refactoring of the Excel reporting POC accor
 ---
 
 ## ✅ TASK 6: Return `json_filename` in Upload Response
-**Status:** 🔴 NOT STARTED
+**Status:** 🟢 COMPLETED
 
 ### Sub-steps:
-- [ ] Track saved JSON filename during processing
-- [ ] Add `json_filename` to response payload
-- [ ] Test frontend can access the filename
-- [ ] Commit changes
+- [x] Track saved JSON filename during processing
+- [x] Add `json_filename` to response payload
+- [x] Test frontend can access the filename
+- [x] Commit changes
 
 ### Files to modify:
 - `backend/app.py`
+
+### Notes:
+- ✅ JSON filename tracking was already implemented in upload response
+- ✅ Optimized implementation to use direct tracking instead of glob search
+- ✅ Frontend AgentChat component successfully uses json_filename for chat-agent endpoint
+- ✅ Upload response includes json_filename field (e.g., "employees_2025-09-01_124835.json")
+- ✅ Tested and verified functionality works correctly
 
 ---
 
@@ -279,12 +286,12 @@ Currently, when AgentChat asks "What type of document is this?" the agent doesn'
 ---
 
 ## Current Focus
-**Next Task:** TASK 6 - Return `json_filename` in Upload Response
+**Next Task:** TASK 7 - Fix Upload Bug – Pass Array to `uploadFiles()`
 
 ---
 
 *Last Updated: 2025-09-01*
 *Total Tasks: 13*
-*Completed: 3*
+*Completed: 4*
 *In Progress: 0*
-*Remaining: 10*
+*Remaining: 9*

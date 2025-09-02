@@ -5,11 +5,16 @@ from typing import List, Dict, Any, Optional
 import os
 import json
 import re
+import logging
 from datetime import datetime
 from dotenv import load_dotenv
 import pandas as pd
 import duckdb
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Import Phase 1 modules
 from excel_processor import extract_file_metadata_from_saved_file, validate_excel_files
@@ -17,6 +22,10 @@ from duckdb_manager import create_persistent_database
 
 # Import Phase 2A modules
 from agents.file_analyzer import analyze_single_file
+
+# Import new utility modules for /query endpoint
+from utils.json_store import load_metadata, append_query_to_metadata, append_report_to_metadata
+from utils.duckdb_manager import save_query, save_report, ensure_all_tables_exist
 
 # Load environment variables
 load_dotenv()
@@ -1130,6 +1139,676 @@ async def get_doc_registry():
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to retrieve doc_registry: {str(e)}")
+
+@app.post("/query")
+async def query_endpoint(request: Dict[str, Any]):
+    """
+    Query endpoint - Natural language to SQL with DuckDB execution
+    
+    This endpoint receives a query in natural language or structured input,
+    generates SQL using LLM, executes via DuckDB, and returns results.
+    
+    Input format (exactly as specified):
+    {
+        "doc_id": "hospital_ledger_fy2024_001",
+        "query_text": "How much did we spend on Vendor X in Q2?",
+        "schema": ["Vendor", "Date", "Amount"],
+        "metadata": {"record_count": 1200, "created": "2024-01-01"},
+        "datetime_context": {"now": "2025-09-02", "current_quarter": "Q3", "last_quarter": "Q2"}
+    }
+    
+    Output format (exactly as specified):
+    {
+        "sql": "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X' AND Quarter = 'Q2'",
+        "rows": [[124000.50]],
+        "columns": ["Total Amount"],
+        "summary": "We spent $124,000.50 on Vendor X in Q2."
+    }
+    """
+    try:
+        # Extract and validate required fields
+        doc_id = request.get("doc_id")
+        query_text = request.get("query_text")
+        schema = request.get("schema", [])
+        metadata = request.get("metadata", {})
+        datetime_context = request.get("datetime_context", {})
+        
+        # Validate required fields
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="Missing required field: doc_id")
+        if not query_text:
+            raise HTTPException(status_code=400, detail="Missing required field: query_text")
+        
+        logger.info(f"Processing query for doc_id: {doc_id}")
+        logger.info(f"Query text: {query_text}")
+        
+        # Load document metadata to get table name and additional context
+        doc_metadata = load_metadata(doc_id)
+        if not doc_metadata:
+            raise HTTPException(status_code=404, detail=f"Document metadata not found for doc_id: {doc_id}")
+        
+        # Get DuckDB table name from metadata
+        duckdb_table_name = doc_metadata.get("duckdb_table_name")
+        if not duckdb_table_name:
+            raise HTTPException(status_code=400, detail=f"No DuckDB table found for doc_id: {doc_id}")
+        
+        logger.info(f"Using DuckDB table: {duckdb_table_name}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Get actual table schema from DuckDB
+        try:
+            schema_result = conn.execute(f"DESCRIBE {duckdb_table_name}").fetchall()
+            actual_schema = [col[0] for col in schema_result]
+            logger.info(f"Actual table schema: {actual_schema}")
+        except Exception as e:
+            logger.error(f"Failed to get table schema: {e}")
+            actual_schema = schema  # Fallback to provided schema
+        
+        # Generate SQL using LLM
+        sql_query = await generate_sql_from_natural_language(
+            query_text=query_text,
+            table_name=duckdb_table_name,
+            schema=actual_schema,
+            metadata=metadata,
+            datetime_context=datetime_context
+        )
+        
+        if not sql_query:
+            raise HTTPException(status_code=500, detail="Failed to generate SQL query")
+        
+        logger.info(f"Generated SQL: {sql_query}")
+        
+        # Execute SQL via DuckDB
+        try:
+            result = conn.execute(sql_query).fetchall()
+            columns_result = conn.execute(sql_query).description
+            
+            # Extract column names
+            columns = [col[0] for col in columns_result] if columns_result else []
+            
+            # Convert rows to list format
+            rows = [list(row) for row in result]
+            
+            logger.info(f"Query executed successfully: {len(rows)} rows returned")
+            
+        except Exception as e:
+            logger.error(f"SQL execution failed: {e}")
+            raise HTTPException(status_code=500, detail=f"SQL execution failed: {str(e)}")
+        
+        # Generate natural language summary using LLM
+        summary = await generate_query_summary(
+            query_text=query_text,
+            sql_query=sql_query,
+            rows=rows,
+            columns=columns
+        )
+        
+        # Auto-save query with fallback name "temp_query" (as specified)
+        query_name = request.get("query_name", "temp_query")
+        tags = request.get("tags", [])
+        
+        save_success = save_query(
+            conn=conn,
+            doc_id=doc_id,
+            query_name=query_name,
+            query_text=query_text,
+            sql=sql_query,
+            tags=tags,
+            description=f"Auto-generated from: {query_text}"
+        )
+        
+        if save_success:
+            logger.info(f"Query saved successfully as: {query_name}")
+        else:
+            logger.warning(f"Failed to save query: {query_name}")
+        
+        # Append query to document metadata
+        query_data = {
+            "query_name": query_name,
+            "query_text": query_text,
+            "sql": sql_query,
+            "tags": tags,
+            "rows_returned": len(rows)
+        }
+        
+        append_success = append_query_to_metadata(doc_id, query_data)
+        if append_success:
+            logger.info("Query appended to document metadata")
+        else:
+            logger.warning("Failed to append query to document metadata")
+        
+        # Close database connection
+        conn.close()
+        
+        # Return results in exact format specified
+        return {
+            "sql": sql_query,
+            "rows": rows,
+            "columns": columns,
+            "summary": summary
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in query endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Query processing failed: {str(e)}")
+
+async def generate_sql_from_natural_language(query_text: str, table_name: str, 
+                                            schema: List[str], metadata: Dict[str, Any],
+                                            datetime_context: Dict[str, str]) -> str:
+    """
+    Generate SQL query from natural language using LLM
+    
+    This function uses OpenAI to convert natural language queries into
+    valid SQL that can be executed against the DuckDB table.
+    
+    Args:
+        query_text: Natural language query
+        table_name: Name of the DuckDB table
+        schema: List of column names in the table
+        metadata: Document metadata (record count, etc.)
+        datetime_context: Current date/time context
+        
+    Returns:
+        str: Generated SQL query
+    """
+    try:
+        from openai import OpenAI
+        import os
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Create comprehensive system prompt for SQL generation
+        system_prompt = f"""You are an expert SQL query generator for DuckDB databases.
+
+Your task is to convert natural language queries into valid DuckDB SQL.
+
+TABLE INFORMATION:
+- Table name: {table_name}
+- Columns: {', '.join(schema)}
+- Record count: {metadata.get('record_count', 'unknown')}
+- Document type: {metadata.get('document_type', 'unknown')}
+
+DATETIME CONTEXT:
+- Current date: {datetime_context.get('now', 'unknown')}
+- Current quarter: {datetime_context.get('current_quarter', 'unknown')}
+- Last quarter: {datetime_context.get('last_quarter', 'unknown')}
+
+RULES:
+1. Generate ONLY the SQL query - no explanations, no markdown, no code blocks
+2. Use proper DuckDB syntax
+3. Handle date/time queries using the datetime context
+4. Use appropriate aggregation functions (SUM, COUNT, AVG, etc.)
+5. Include proper WHERE clauses for filtering
+6. Use column names exactly as provided in the schema
+7. For date ranges, use the datetime context to determine quarters, months, etc.
+8. Always include a LIMIT clause for large result sets (max 1000 rows)
+9. CRITICAL: Quote ALL column names with double quotes if they contain spaces
+10. Example: "Transaction Type" not Transaction Type
+11. CRITICAL: Return ONLY the SQL query text, nothing else
+12. Do NOT wrap the SQL in quotes, backticks, or any other formatting
+
+EXAMPLES:
+- "How much did we spend on Vendor X in Q2?" → "SELECT SUM(\"Amount\") FROM {table_name} WHERE \"Company Code\" = 'COMP001' LIMIT 1000"
+- "Show me the total amount by transaction type" → "SELECT \"Transaction Type\", SUM(\"Amount\") as Total_Amount FROM {table_name} GROUP BY \"Transaction Type\" LIMIT 1000"
+- "What's the average amount per transaction?" → "SELECT AVG(\"Amount\") as Average_Amount FROM {table_name} LIMIT 1000"
+
+Generate SQL for this query:"""
+
+        # Create user prompt
+        user_prompt = f"Query: {query_text}"
+        
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=500,
+            temperature=0.1
+        )
+        
+        # Extract SQL query from response
+        sql_query = response.choices[0].message.content.strip()
+        
+        # Clean up the SQL query (remove any markdown formatting)
+        if sql_query.startswith("```sql"):
+            sql_query = sql_query[6:]
+        if sql_query.startswith("```"):
+            sql_query = sql_query[3:]
+        if sql_query.endswith("```"):
+            sql_query = sql_query[:-3]
+        
+        sql_query = sql_query.strip()
+        
+        # Remove any surrounding quotes that might wrap the entire SQL
+        if sql_query.startswith('"') and sql_query.endswith('"'):
+            sql_query = sql_query[1:-1]
+        if sql_query.startswith("'") and sql_query.endswith("'"):
+            sql_query = sql_query[1:-1]
+        
+        # Debug: Log the raw SQL before processing
+        logger.info(f"Raw SQL from LLM: {repr(sql_query)}")
+        
+        # Fix DuckDB syntax: replace backticks with double quotes for column names
+        sql_query = sql_query.replace("`", '"')
+        
+        # Debug: Log the processed SQL
+        logger.info(f"Processed SQL: {repr(sql_query)}")
+        
+        logger.info(f"Generated SQL query: {sql_query}")
+        return sql_query
+        
+    except Exception as e:
+        logger.error(f"Failed to generate SQL from natural language: {e}")
+        return None
+
+async def generate_query_summary(query_text: str, sql_query: str, 
+                               rows: List[List], columns: List[str]) -> str:
+    """
+    Generate natural language summary of query results using LLM
+    
+    This function uses OpenAI to create a human-readable summary of the
+    query results in natural language.
+    
+    Args:
+        query_text: Original natural language query
+        sql_query: Generated SQL query
+        rows: Query result rows
+        columns: Column names
+        
+    Returns:
+        str: Natural language summary of results
+    """
+    try:
+        from openai import OpenAI
+        import os
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Prepare result data for summary
+        result_summary = f"Query returned {len(rows)} rows with columns: {', '.join(columns)}"
+        
+        # Include first few rows as examples (limit to avoid token limits)
+        sample_rows = rows[:3] if len(rows) > 3 else rows
+        if sample_rows:
+            result_summary += f"\nSample results: {sample_rows}"
+        
+        # Create system prompt for summary generation
+        system_prompt = """You are an expert at creating natural language summaries of database query results.
+
+Your task is to create a concise, human-readable summary of query results that answers the original question.
+
+RULES:
+1. Be concise and direct
+2. Include specific numbers and values from the results
+3. Answer the original question clearly
+4. Use natural language, not technical jargon
+5. If no results, explain why
+6. Keep summary under 100 words
+
+EXAMPLES:
+- If query was "How much did we spend on Vendor X in Q2?" and result is [[124000.50]]
+  → "We spent $124,000.50 on Vendor X in Q2."
+- If query was "Show me top vendors" and result is [["Vendor A", 50000], ["Vendor B", 30000]]
+  → "The top vendors are Vendor A with $50,000 and Vendor B with $30,000."
+- If no results: "No records found matching your criteria."
+
+Create a summary for these results:"""
+
+        # Create user prompt
+        user_prompt = f"""Original question: {query_text}
+SQL query: {sql_query}
+{result_summary}"""
+        
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        # Extract summary from response
+        summary = response.choices[0].message.content.strip()
+        
+        logger.info(f"Generated query summary: {summary}")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Failed to generate query summary: {e}")
+        # Fallback summary
+        return f"Query executed successfully and returned {len(rows)} rows."
+
+@app.post("/report")
+async def report_endpoint(request: Dict[str, Any]):
+    """
+    Report endpoint - Generate reports with filters, grouping, formatting
+    
+    This endpoint generates reports using filters, grouping, formatting, and natural language titles.
+    Uses LLM to interpret vague report names and builds output using pandas + duckdb.
+    
+    Input format (exactly as specified):
+    {
+        "doc_id": "hospital_ledger_fy2024_001",
+        "report_name": "Weekly Vendor Spend",
+        "sql": "SELECT Week, SUM(Amount) FROM table WHERE vendor = 'Vendor X' GROUP BY Week",
+        "filters": {"vendor": "Vendor X", "quarter": "Q2"},
+        "group_by": ["Week"],
+        "format": "chart",
+        "output_type": "html"
+    }
+    
+    Output: HTML, XLSX, or JSON based on output_type
+    """
+    try:
+        # Extract and validate required fields
+        doc_id = request.get("doc_id")
+        report_name = request.get("report_name", "temp_report")  # Fallback name as specified
+        sql_query = request.get("sql", "")  # SQL query to execute
+        filters = request.get("filters", {})
+        group_by = request.get("group_by", [])
+        format_type = request.get("format", "table")
+        output_type = request.get("output_type", "html")
+        
+        # Validate required fields
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="Missing required field: doc_id")
+        if not sql_query:
+            raise HTTPException(status_code=400, detail="Missing required field: sql")
+        
+        logger.info(f"Processing report for doc_id: {doc_id}")
+        logger.info(f"Report name: {report_name}")
+        logger.info(f"Output type: {output_type}")
+        
+        # Load document metadata to get table name and additional context
+        doc_metadata = load_metadata(doc_id)
+        if not doc_metadata:
+            raise HTTPException(status_code=404, detail=f"Document metadata not found for doc_id: {doc_id}")
+        
+        # Get DuckDB table name from metadata
+        duckdb_table_name = doc_metadata.get("duckdb_table_name")
+        if not duckdb_table_name:
+            raise HTTPException(status_code=400, detail=f"No DuckDB table found for doc_id: {doc_id}")
+        
+        logger.info(f"Using DuckDB table: {duckdb_table_name}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Get actual table schema from DuckDB
+        try:
+            schema_result = conn.execute(f"DESCRIBE {duckdb_table_name}").fetchall()
+            actual_schema = [col[0] for col in schema_result]
+            logger.info(f"Actual table schema: {actual_schema}")
+        except Exception as e:
+            logger.error(f"Failed to get table schema: {e}")
+            actual_schema = doc_metadata.get("fields", [])  # Fallback to metadata fields
+        
+        # Create report configuration from provided SQL
+        report_config = {
+            "sql": sql_query,
+            "description": f"Report: {report_name}",
+            "chart": "bar" if format_type == "chart" else "",
+            "table_name": duckdb_table_name  # Pass table name for file naming
+        }
+        
+        logger.info(f"Using provided SQL: {sql_query}")
+        
+        # Generate report using report_builder
+        from utils.report_builder import build_report
+        
+        report_result = await build_report(
+            conn=conn,
+            table_name=duckdb_table_name,
+            report_config=report_config,
+            output_type=output_type
+        )
+        
+        if not report_result:
+            raise HTTPException(status_code=500, detail="Failed to build report")
+        
+        # Auto-save report with fallback name "temp_report" (as specified)
+        save_success = save_report(
+            conn=conn,
+            doc_id=doc_id,
+            report_name=report_name,
+            sql=sql_query,
+            filters=filters,
+            group_by=group_by,
+            format=format_type,
+            chart=report_config.get("chart", ""),
+            output_type=output_type,
+            description=report_config.get("description", f"Report: {report_name}")
+        )
+        
+        if save_success:
+            logger.info(f"Report saved successfully as: {report_name}")
+        else:
+            logger.warning(f"Failed to save report: {report_name}")
+        
+        # Append report to document metadata
+        report_data = {
+            "report_name": report_name,
+            "filters": filters,
+            "group_by": group_by,
+            "format": format_type,
+            "output_type": output_type,
+            "sql": sql_query,
+            "chart": report_config.get("chart", "")
+        }
+        
+        append_success = append_report_to_metadata(doc_id, report_data)
+        if append_success:
+            logger.info("Report appended to document metadata")
+        else:
+            logger.warning("Failed to append report to document metadata")
+        
+        # Close database connection
+        conn.close()
+        
+        # Return comprehensive results for next agent processing
+        base_result = {
+            "success": True,
+            "doc_id": doc_id,
+            "duckdb_table_name": duckdb_table_name,
+            "report_name": report_name,
+            "sql": sql_query,
+            "filters": filters,
+            "group_by": group_by,
+            "format": format_type,
+            "output_type": output_type,
+            "chart": report_config.get("chart", ""),
+            "description": report_config.get("description", f"Report: {report_name}"),
+            "row_count": report_result.get("row_count", 0),
+            "column_count": report_result.get("column_count", 0),
+            "summary": report_result.get("summary", f"Generated {report_name} report"),
+            "generated_timestamp": datetime.now().isoformat(),
+            "saved_to_db": save_success,
+            "saved_to_metadata": append_success
+        }
+        
+        # Add output-specific data
+        if output_type == "html":
+            base_result.update({
+                "content": report_result.get("html", ""),
+                "content_type": "html"
+            })
+        elif output_type == "xlsx":
+            base_result.update({
+                "download_url": report_result.get("download_url", ""),
+                "filename": report_result.get("filename", f"{duckdb_table_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"),
+                "filepath": report_result.get("filepath", ""),
+                "content_type": "xlsx"
+            })
+        elif output_type == "json":
+            base_result.update({
+                "data": report_result.get("data", {}),
+                "content_type": "json"
+            })
+        else:
+            # Default to HTML
+            base_result.update({
+                "content": report_result.get("html", ""),
+                "content_type": "html"
+            })
+        
+        return base_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in report endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Report processing failed: {str(e)}")
+
+async def interpret_report_name(report_name: str, table_name: str, schema: List[str],
+                              filters: Dict[str, Any], group_by: List[str], 
+                              format_type: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Interpret vague report name using LLM to determine logic and fields
+    
+    This function uses OpenAI to interpret vague report titles and determine
+    the appropriate SQL logic, grouping, and formatting for the report.
+    
+    Args:
+        report_name: Natural language report name
+        table_name: Name of the DuckDB table
+        schema: List of column names in the table
+        filters: Dictionary of filters to apply
+        group_by: List of fields to group by
+        format_type: Report format (table, chart, etc.)
+        metadata: Document metadata
+        
+    Returns:
+        Dict[str, Any]: Interpreted report configuration
+    """
+    try:
+        from openai import OpenAI
+        import os
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Create comprehensive system prompt for report interpretation
+        system_prompt = f"""You are an expert at interpreting vague report names and determining appropriate SQL logic.
+
+Your task is to analyze a report name and determine the appropriate SQL query, grouping, and formatting.
+
+TABLE INFORMATION:
+- Table name: {table_name}
+- Columns: {', '.join(schema)}
+- Record count: {metadata.get('record_count', 'unknown')}
+- Document type: {metadata.get('document_type', 'unknown')}
+
+CURRENT FILTERS: {filters}
+CURRENT GROUP BY: {group_by}
+FORMAT TYPE: {format_type}
+
+RULES:
+1. Generate a JSON response with these exact fields:
+   - "sql": The SQL query to generate the report
+   - "description": Clear description of what the report shows
+   - "chart": Chart type if format is "chart" (bar, line, pie, etc.)
+   - "group_by_fields": Fields to group by (if not already specified)
+   - "filters": Additional filters to apply (if not already specified)
+
+2. Use proper DuckDB syntax
+3. Quote ALL column names with double quotes if they contain spaces
+4. Include appropriate aggregation functions (SUM, COUNT, AVG, etc.)
+5. For date-based reports, use appropriate date functions
+6. Always include a LIMIT clause for large result sets (max 1000 rows)
+
+EXAMPLES:
+- "Weekly Vendor Spend" → Group by week, sum amounts, show vendor breakdown
+- "Top 10 Customers" → Order by amount descending, limit 10
+- "Monthly Trends" → Group by month, show trend over time
+- "Vendor Performance" → Group by vendor, show key metrics
+
+Generate configuration for this report:"""
+
+        # Create user prompt
+        user_prompt = f"Report name: {report_name}"
+        
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=500,
+            temperature=0.1
+        )
+        
+        # Extract response content
+        ai_response = response.choices[0].message.content.strip()
+        
+        # Parse JSON response
+        try:
+            import json
+            interpreted_config = json.loads(ai_response)
+            
+            # Validate required fields
+            required_fields = ["sql", "description"]
+            for field in required_fields:
+                if field not in interpreted_config:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # Fix DuckDB syntax: replace backticks with double quotes for column names
+            sql_query = interpreted_config["sql"].replace("`", '"')
+            
+            # Fix column names with spaces - ensure they're properly quoted
+            import re
+            column_pattern = r'\b([A-Za-z][A-Za-z0-9_\s]*[A-Za-z0-9_])\b'
+            def quote_column(match):
+                col_name = match.group(1)
+                if ' ' in col_name and not (col_name.startswith('"') and col_name.endswith('"')):
+                    return f'"{col_name}"'
+                return col_name
+            
+            sql_query = re.sub(column_pattern, quote_column, sql_query)
+            interpreted_config["sql"] = sql_query
+            
+            logger.info(f"Interpreted report configuration: {interpreted_config}")
+            return interpreted_config
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AI response as JSON: {e}")
+            logger.error(f"AI Response: {ai_response}")
+            
+            # Fallback: create basic configuration
+            fallback_sql = f"SELECT * FROM {table_name} LIMIT 1000"
+            if group_by:
+                # Simple aggregation if group_by is specified
+                quoted_cols = [f'"{col}"' for col in group_by]
+                fallback_sql = f"SELECT {', '.join(quoted_cols)}, COUNT(*) as count FROM {table_name} GROUP BY {', '.join(quoted_cols)} LIMIT 1000"
+            
+            return {
+                "sql": fallback_sql,
+                "description": f"Basic report for {report_name}",
+                "chart": "bar" if format_type == "chart" else "",
+                "group_by_fields": group_by,
+                "filters": filters
+            }
+        
+    except Exception as e:
+        logger.error(f"Failed to interpret report name: {e}")
+        return None
 
 if __name__ == "__main__":
     import uvicorn

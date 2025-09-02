@@ -1,0 +1,455 @@
+"""
+Extended DuckDB Manager for AutoGen Excel Intelligence System
+
+This module extends the existing duckdb_manager.py with additional functions
+required for the new endpoints: saved_queries, saved_reports tables.
+
+Key Functions:
+- create_query_table() - Create saved_queries table
+- create_report_table() - Create saved_reports table  
+- save_query() - Save query to DuckDB and return success status
+- save_report() - Save report to DuckDB and return success status
+- get_saved_queries() - Retrieve saved queries with filtering
+- get_saved_reports() - Retrieve saved reports with filtering
+"""
+
+import duckdb
+import pandas as pd
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import logging
+
+# Import the base duckdb_manager functions
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from duckdb_manager import create_persistent_database
+
+# Configure logging for DuckDB operations
+logger = logging.getLogger(__name__)
+
+def create_query_table(conn: duckdb.DuckDBPyConnection) -> bool:
+    """
+    Create the saved_queries table structure
+    
+    This table stores all saved queries with their metadata for retrieval
+    and reuse. Stores full SQL and query parameters (NOT normalized).
+    
+    Args:
+        conn: DuckDB connection
+        
+    Returns:
+        bool: True if table created successfully
+        
+    Example:
+        success = create_query_table(conn)
+        if success:
+            print("saved_queries table created successfully")
+    """
+    try:
+        # Create the saved_queries table with all required fields
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id INTEGER PRIMARY KEY,
+                doc_id VARCHAR NOT NULL,
+                query_name VARCHAR NOT NULL,
+                query_text TEXT NOT NULL,
+                sql TEXT NOT NULL,
+                tags TEXT,  -- JSON array of tags
+                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used TIMESTAMP,
+                use_count INTEGER DEFAULT 0,
+                description TEXT
+            )
+        """)
+        
+        logger.info("Created saved_queries table structure")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error creating saved_queries table: {e}")
+        return False
+
+def create_report_table(conn: duckdb.DuckDBPyConnection) -> bool:
+    """
+    Create the saved_reports table structure
+    
+    This table stores all saved reports with their configuration and metadata
+    for retrieval and reuse. Stores full report parameters (NOT normalized).
+    
+    Args:
+        conn: DuckDB connection
+        
+    Returns:
+        bool: True if table created successfully
+        
+    Example:
+        success = create_report_table(conn)
+        if success:
+            print("saved_reports table created successfully")
+    """
+    try:
+        # Create the saved_reports table with all required fields
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS saved_reports (
+                id INTEGER PRIMARY KEY,
+                doc_id VARCHAR NOT NULL,
+                report_name VARCHAR NOT NULL,
+                sql TEXT,  -- SQL used to generate report
+                filters TEXT,  -- JSON object of filters
+                group_by TEXT,  -- JSON array of group by fields
+                format VARCHAR,  -- table, chart, etc.
+                chart VARCHAR,  -- bar, line, pie, etc.
+                output_type VARCHAR,  -- html, xlsx, json
+                description TEXT,
+                created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_generated TIMESTAMP,
+                generation_count INTEGER DEFAULT 0
+            )
+        """)
+        
+        logger.info("Created saved_reports table structure")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error creating saved_reports table: {e}")
+        return False
+
+def save_query(conn: duckdb.DuckDBPyConnection, doc_id: str, query_name: str, 
+               query_text: str, sql: str, tags: List[str] = None, 
+               description: str = "") -> bool:
+    """
+    Save a query to the saved_queries table
+    
+    Stores query information in DuckDB for later retrieval and reuse.
+    All queries are saved with full SQL and metadata.
+    
+    Args:
+        conn: DuckDB connection
+        doc_id: Document identifier
+        query_name: Name of the query
+        query_text: Original natural language query text
+        sql: Generated SQL query
+        tags: List of tags for categorization
+        description: Optional description of the query
+        
+    Returns:
+        bool: True if save successful, False otherwise
+        
+    Example:
+        success = save_query(
+            conn, "hospital_ledger_fy2024_001", "Quarterly Vendor Spend",
+            "How much did we spend on Vendor X in Q2?",
+            "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X'",
+            ["vendor", "q2", "spending"]
+        )
+    """
+    try:
+        # Ensure saved_queries table exists
+        create_query_table(conn)
+        
+        # Convert tags list to JSON string
+        tags_json = json.dumps(tags) if tags else "[]"
+        
+        # Get next available ID
+        next_id_result = conn.execute("""
+            SELECT COALESCE(MAX(id), 0) + 1 FROM saved_queries
+        """).fetchone()
+        next_id = next_id_result[0] if next_id_result else 1
+        
+        # Insert query record
+        conn.execute("""
+            INSERT INTO saved_queries (id, doc_id, query_name, query_text, sql, tags, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, [next_id, doc_id, query_name, query_text, sql, tags_json, description])
+        
+        logger.info(f"Successfully saved query '{query_name}' for doc_id: {doc_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error saving query '{query_name}' for doc_id {doc_id}: {e}")
+        return False
+
+def save_report(conn: duckdb.DuckDBPyConnection, doc_id: str, report_name: str,
+                sql: str = "", filters: Dict[str, Any] = None, 
+                group_by: List[str] = None, format: str = "table",
+                chart: str = "", output_type: str = "html", 
+                description: str = "") -> bool:
+    """
+    Save a report to the saved_reports table
+    
+    Stores report configuration in DuckDB for later retrieval and reuse.
+    All report parameters are stored (NOT normalized).
+    
+    Args:
+        conn: DuckDB connection
+        doc_id: Document identifier
+        report_name: Name of the report
+        sql: SQL query used to generate report
+        filters: Dictionary of filters applied
+        group_by: List of fields to group by
+        format: Report format (table, chart, etc.)
+        chart: Chart type (bar, line, pie, etc.)
+        output_type: Output format (html, xlsx, json)
+        description: Optional description of the report
+        
+    Returns:
+        bool: True if save successful, False otherwise
+        
+    Example:
+        success = save_report(
+            conn, "hospital_ledger_fy2024_001", "Weekly Vendor Spend",
+            "SELECT Week, SUM(Amount) FROM hospital_ledger_fy2024_001 GROUP BY Week",
+            {"vendor": "Vendor X"}, ["Week"], "chart", "bar", "html"
+        )
+    """
+    try:
+        # Ensure saved_reports table exists
+        create_report_table(conn)
+        
+        # Convert complex objects to JSON strings
+        filters_json = json.dumps(filters) if filters else "{}"
+        group_by_json = json.dumps(group_by) if group_by else "[]"
+        
+        # Get next available ID
+        next_id_result = conn.execute("""
+            SELECT COALESCE(MAX(id), 0) + 1 FROM saved_reports
+        """).fetchone()
+        next_id = next_id_result[0] if next_id_result else 1
+        
+        # Insert report record
+        conn.execute("""
+            INSERT INTO saved_reports (id, doc_id, report_name, sql, filters, group_by, 
+                                     format, chart, output_type, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, [next_id, doc_id, report_name, sql, filters_json, group_by_json, 
+              format, chart, output_type, description])
+        
+        logger.info(f"Successfully saved report '{report_name}' for doc_id: {doc_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error saving report '{report_name}' for doc_id {doc_id}: {e}")
+        return False
+
+def get_saved_queries(conn: duckdb.DuckDBPyConnection, doc_id: str = None, 
+                     tags: List[str] = None, date_range: Dict[str, str] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve saved queries with optional filtering
+    
+    Searches the saved_queries table based on provided filters and returns
+    matching query records.
+    
+    Args:
+        conn: DuckDB connection
+        doc_id: Filter by document ID (optional)
+        tags: Filter by tags (optional)
+        date_range: Filter by date range with 'start' and 'end' keys (optional)
+        
+    Returns:
+        List[Dict[str, Any]]: List of matching query records
+        
+    Example:
+        queries = get_saved_queries(
+            conn, doc_id="hospital_ledger_fy2024_001", 
+            tags=["vendor"], 
+            date_range={"start": "2025-01-01", "end": "2025-01-31"}
+        )
+    """
+    try:
+        # Build WHERE clause based on filters
+        where_conditions = []
+        params = []
+        
+        if doc_id:
+            where_conditions.append("doc_id = ?")
+            params.append(doc_id)
+        
+        if tags:
+            # Search for any of the provided tags in the JSON tags field
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("tags LIKE ?")
+                params.append(f"%{tag}%")
+            if tag_conditions:
+                where_conditions.append(f"({' OR '.join(tag_conditions)})")
+        
+        if date_range:
+            if 'start' in date_range:
+                where_conditions.append("created_date >= ?")
+                params.append(date_range['start'])
+            if 'end' in date_range:
+                where_conditions.append("created_date <= ?")
+                params.append(date_range['end'])
+        
+        # Build complete query
+        where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        
+        query = f"""
+            SELECT id, doc_id, query_name, query_text, sql, tags, 
+                   created_date, last_used, use_count, description
+            FROM saved_queries
+            {where_clause}
+            ORDER BY created_date DESC
+        """
+        
+        # Execute query
+        result = conn.execute(query, params).fetchall()
+        
+        # Convert to list of dictionaries
+        queries = []
+        for row in result:
+            queries.append({
+                "id": row[0],
+                "doc_id": row[1],
+                "query_name": row[2],
+                "query_text": row[3],
+                "sql": row[4],
+                "tags": json.loads(row[5]) if row[5] else [],
+                "created_date": row[6],
+                "last_used": row[7],
+                "use_count": row[8],
+                "description": row[9]
+            })
+        
+        logger.info(f"Retrieved {len(queries)} saved queries")
+        return queries
+        
+    except Exception as e:
+        logger.error(f"Error retrieving saved queries: {e}")
+        return []
+
+def get_saved_reports(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
+                     tags: List[str] = None, output_type: str = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve saved reports with optional filtering
+    
+    Searches the saved_reports table based on provided filters and returns
+    matching report records.
+    
+    Args:
+        conn: DuckDB connection
+        doc_id: Filter by document ID (optional)
+        tags: Filter by tags in report name or description (optional)
+        output_type: Filter by output type (optional)
+        
+    Returns:
+        List[Dict[str, Any]]: List of matching report records
+        
+    Example:
+        reports = get_saved_reports(
+            conn, doc_id="hospital_ledger_fy2024_001", 
+            output_type="html"
+        )
+    """
+    try:
+        # Build WHERE clause based on filters
+        where_conditions = []
+        params = []
+        
+        if doc_id:
+            where_conditions.append("doc_id = ?")
+            params.append(doc_id)
+        
+        if tags:
+            # Search for any of the provided tags in report name or description
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("(report_name LIKE ? OR description LIKE ?)")
+                params.extend([f"%{tag}%", f"%{tag}%"])
+            if tag_conditions:
+                where_conditions.append(f"({' OR '.join(tag_conditions)})")
+        
+        if output_type:
+            where_conditions.append("output_type = ?")
+            params.append(output_type)
+        
+        # Build complete query
+        where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        
+        query = f"""
+            SELECT id, doc_id, report_name, sql, filters, group_by, 
+                   format, chart, output_type, description, created_date, 
+                   last_generated, generation_count
+            FROM saved_reports
+            {where_clause}
+            ORDER BY created_date DESC
+        """
+        
+        # Execute query
+        result = conn.execute(query, params).fetchall()
+        
+        # Convert to list of dictionaries
+        reports = []
+        for row in result:
+            reports.append({
+                "id": row[0],
+                "doc_id": row[1],
+                "report_name": row[2],
+                "sql": row[3],
+                "filters": json.loads(row[4]) if row[4] else {},
+                "group_by": json.loads(row[5]) if row[5] else [],
+                "format": row[6],
+                "chart": row[7],
+                "output_type": row[8],
+                "description": row[9],
+                "created_date": row[10],
+                "last_generated": row[11],
+                "generation_count": row[12]
+            })
+        
+        logger.info(f"Retrieved {len(reports)} saved reports")
+        return reports
+        
+    except Exception as e:
+        logger.error(f"Error retrieving saved reports: {e}")
+        return []
+
+def ensure_all_tables_exist() -> bool:
+    """
+    Ensure all required tables exist in the database
+    
+    Creates all necessary tables for the AutoGen system:
+    - doc_registry (from base duckdb_manager)
+    - saved_queries (new)
+    - saved_reports (new)
+    
+    Returns:
+        bool: True if all tables created successfully
+        
+    Example:
+        success = ensure_all_tables_exist()
+        if success:
+            print("All required tables are ready")
+    """
+    try:
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Import and create doc_registry table
+        from duckdb_manager import create_document_registry_table
+        doc_registry_success = create_document_registry_table(conn)
+        
+        # Create new tables
+        queries_success = create_query_table(conn)
+        reports_success = create_report_table(conn)
+        
+        # Close connection
+        conn.close()
+        
+        # Check all results
+        all_success = doc_registry_success and queries_success and reports_success
+        
+        if all_success:
+            logger.info("All required tables created successfully")
+        else:
+            logger.error("Some tables failed to create")
+        
+        return all_success
+        
+    except Exception as e:
+        logger.error(f"Error ensuring all tables exist: {e}")
+        return False
+
+# Import json module for JSON operations
+import json

@@ -190,6 +190,81 @@ Generate report using filters, grouping, formatting, and natural language title.
 
 ---
 
+### `/execute_query/{query_name}` (GET)
+
+**Type**: GET
+
+### Purpose
+
+Execute a saved query by name and return results. Supports both frontend click-to-run and agent programmatic execution.
+
+### Input
+
+* Path parameter: `query_name` (string) - e.g., "Lyft", "Disney clients", "temp_query"
+
+### Output
+
+```json
+{
+  "sql": "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X'",
+  "rows": [[124000.50]],
+  "columns": ["Total Amount"],
+  "summary": "We spent $124,000.50 on Vendor X in Q2.",
+  "query_id": 123,
+  "query_name": "Lyft",
+  "execution_time": "2025-09-02T10:30:00Z"
+}
+```
+
+### Responsibilities
+
+* Fetch query details from `saved_queries` table by `query_name`
+* Execute the stored SQL via DuckDB
+* Return results in same format as `/query` endpoint
+* Update `use_count` and `last_used` timestamp
+* Handle missing query_name with 404 error
+
+### Usage Patterns
+
+1. **Frontend Navigation Click-to-Run**: User clicks saved query in navigation dropdown
+2. **Agent Programmatic Execution**: ConversationalAgent re-runs past queries by name (e.g., "run the Lyft query")
+
+---
+
+### `/execute_report/{report_id}` (GET)
+
+**Type**: GET
+
+### Purpose
+
+Execute a saved report by ID and return formatted output. Supports both frontend click-to-run and agent programmatic execution.
+
+### Input
+
+* Path parameter: `report_id` (integer)
+
+### Output
+
+* HTML, XLSX, or JSON (same format as `/report` endpoint)
+* Includes report metadata and execution details
+
+### Responsibilities
+
+* Fetch report details from `saved_reports` table by `report_id`
+* Execute the stored SQL via DuckDB
+* Generate output using `report_builder.py`
+* Return formatted results (HTML, XLSX, or JSON)
+* Update `generation_count` and `last_generated` timestamp
+* Handle missing report_id with 404 error
+
+### Usage Patterns
+
+1. **Frontend Navigation Click-to-Run**: User clicks saved report in navigation dropdown
+2. **Agent Programmatic Execution**: ConversationalAgent re-runs past reports
+3. **Download Links**: For long results, provide download URLs
+
+---
+
 ## 🤖 Agents to Implement
 
 ### `ChatAgent`

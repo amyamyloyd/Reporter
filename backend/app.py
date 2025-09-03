@@ -2140,6 +2140,103 @@ Generate configuration for this report:"""
         logger.error(f"Failed to interpret report name: {e}")
         return None
 
+@app.get("/execute_query/{query_name}")
+async def execute_query_endpoint(query_name: str):
+    """
+    Execute saved query endpoint - Run saved queries by name
+    
+    Supports both frontend click-to-run and agent programmatic execution.
+    Updates usage statistics and returns results in same format as /query endpoint.
+    """
+    try:
+        # Validate query_name
+        if not query_name or not query_name.strip():
+            raise HTTPException(status_code=400, detail="Invalid query_name. Must be non-empty string.")
+        
+        # Ensure database tables exist
+        ensure_all_tables_exist()
+        conn = create_persistent_database()
+        
+        # Look up query directly in saved_queries table
+        query_result = conn.execute("""
+            SELECT id, doc_id, query_name, sql, query_text, tags, 
+                   created_date, use_count, last_used
+            FROM saved_queries 
+            WHERE query_name = ?
+        """, [query_name.strip()]).fetchone()
+        
+        if not query_result:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Query with name '{query_name}' not found")
+        
+        # Extract query information
+        query_id = query_result[0]
+        doc_id = query_result[1]
+        sql_query = query_result[3]
+        
+        logger.info(f"Executing saved query: {query_name} (ID: {query_id})")
+        
+        # Load JSON metadata to get correct table name
+        from utils.json_store import load_metadata
+        doc_metadata = load_metadata(doc_id)
+        if doc_metadata and "duckdb_table_name" in doc_metadata:
+            correct_table_name = doc_metadata["duckdb_table_name"]
+            # Fix the SQL query to use the correct table name
+            import re
+            # Find the table name in the SQL (after FROM keyword)
+            sql_query = re.sub(r'FROM\s+\w+', f'FROM {correct_table_name}', sql_query, flags=re.IGNORECASE)
+            logger.info(f"Corrected SQL to use table: {correct_table_name}")
+        else:
+            logger.warning(f"Could not load metadata for doc_id: {doc_id}")
+        
+        # Execute the SQL query via DuckDB
+        try:
+            # Execute the query
+            result = conn.execute(sql_query).fetchall()
+            columns = [desc[0] for desc in conn.description] if conn.description else []
+            
+            # Convert result to list of lists for JSON serialization
+            rows = [list(row) for row in result]
+            
+            # Simple summary
+            summary = f"Executed query '{query_name}' and returned {len(rows)} rows"
+            
+            # Update usage statistics directly
+            conn.execute("""
+                UPDATE saved_queries 
+                SET use_count = COALESCE(use_count, 0) + 1,
+                    last_used = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, [query_id])
+            
+            conn.close()
+            
+            # Return results in same format as /query endpoint
+            return {
+                "success": True,
+                "message": f"Successfully executed query: {query_name}",
+                "query_id": query_id,
+                "query_name": query_name,
+                "sql": sql_query,
+                "rows": rows,
+                "columns": columns,
+                "summary": summary,
+                "execution_time": datetime.now().isoformat(),
+                "doc_id": doc_id,
+                "row_count": len(rows)
+            }
+            
+        except Exception as sql_error:
+            conn.close()
+            logger.error(f"SQL execution error for query {query_name}: {sql_error}")
+            raise HTTPException(status_code=500, detail=f"SQL execution failed: {str(sql_error)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in execute_query endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

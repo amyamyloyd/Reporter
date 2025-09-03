@@ -467,3 +467,194 @@ def ensure_all_tables_exist() -> bool:
 
 # Import json module for JSON operations
 import json
+
+def get_query_by_id(conn: duckdb.DuckDBPyConnection, query_id: int) -> Dict[str, Any]:
+    """
+    Retrieve a specific query by its ID
+    
+    Args:
+        conn: DuckDB connection
+        query_id: The ID of the query to retrieve
+        
+    Returns:
+        Dict with query details or None if not found
+    """
+    try:
+        # Ensure saved_queries table exists
+        create_query_table(conn)
+        
+        # Query for the specific query ID
+        result = conn.execute("""
+            SELECT id, doc_id, query_name, sql, query_text, tags, 
+                   created_date, use_count, last_used
+            FROM saved_queries 
+            WHERE id = ?
+        """, [query_id]).fetchone()
+        
+        if result:
+            return {
+                "id": result[0],
+                "doc_id": result[1],
+                "query_name": result[2],
+                "sql": result[3],
+                "query_text": result[4],
+                "tags": result[5],
+                "created_timestamp": result[6],  # Map created_date to created_timestamp for consistency
+                "use_count": result[7],
+                "last_used": result[8]
+            }
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error retrieving query by ID {query_id}: {e}")
+        return None
+
+def get_query_by_name(conn: duckdb.DuckDBPyConnection, query_name: str) -> Dict[str, Any]:
+    """
+    Retrieve a specific query by its name
+    
+    Args:
+        conn: DuckDB connection
+        query_name: The name of the query to retrieve
+        
+    Returns:
+        Dict with query details or None if not found
+    """
+    try:
+        # Ensure saved_queries table exists
+        create_query_table(conn)
+        
+        # Query for the specific query name
+        result = conn.execute("""
+            SELECT id, doc_id, query_name, sql, query_text, tags, 
+                   created_date, use_count, last_used
+            FROM saved_queries 
+            WHERE query_name = ?
+        """, [query_name]).fetchone()
+        
+        if result:
+            return {
+                "id": result[0],
+                "doc_id": result[1],
+                "query_name": result[2],
+                "sql": result[3],
+                "query_text": result[4],
+                "tags": result[5],
+                "created_timestamp": result[6],  # Map created_date to created_timestamp for consistency
+                "use_count": result[7],
+                "last_used": result[8]
+            }
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error retrieving query by name '{query_name}': {e}")
+        return None
+
+def update_query_usage_stats(conn: duckdb.DuckDBPyConnection, query_id: int) -> bool:
+    """
+    Update usage statistics for a query (use_count and last_used timestamp)
+    
+    Args:
+        conn: DuckDB connection
+        query_id: The ID of the query to update
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Ensure saved_queries table exists
+        create_query_table(conn)
+        
+        # Update usage statistics
+        conn.execute("""
+            UPDATE saved_queries 
+            SET use_count = COALESCE(use_count, 0) + 1,
+                last_used = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, [query_id])
+        
+        logger.info(f"Updated usage stats for query ID: {query_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error updating usage stats for query {query_id}: {e}")
+        return False
+
+def get_report_by_id(conn: duckdb.DuckDBPyConnection, report_id: int) -> Dict[str, Any]:
+    """
+    Retrieve a specific report by its ID
+    
+    Args:
+        conn: DuckDB connection
+        report_id: The ID of the report to retrieve
+        
+    Returns:
+        Dict with report details or None if not found
+    """
+    try:
+        # Ensure saved_reports table exists
+        create_report_table(conn)
+        
+        # Query for the specific report ID
+        result = conn.execute("""
+            SELECT id, doc_id, report_name, sql, filters, group_by, 
+                   format, chart, output_type, description, created_timestamp,
+                   generation_count, last_generated
+            FROM saved_reports 
+            WHERE id = ?
+        """, [report_id]).fetchone()
+        
+        if result:
+            return {
+                "id": result[0],
+                "doc_id": result[1],
+                "report_name": result[2],
+                "sql": result[3],
+                "filters": result[4],
+                "group_by": result[5],
+                "format": result[6],
+                "chart": result[7],
+                "output_type": result[8],
+                "description": result[9],
+                "created_timestamp": result[10],
+                "generation_count": result[11],
+                "last_generated": result[12]
+            }
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error retrieving report by ID {report_id}: {e}")
+        return None
+
+def update_report_usage_stats(conn: duckdb.DuckDBPyConnection, report_id: int) -> bool:
+    """
+    Update usage statistics for a report (generation_count and last_generated timestamp)
+    
+    Args:
+        conn: DuckDB connection
+        report_id: The ID of the report to update
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Ensure saved_reports table exists
+        create_report_table(conn)
+        
+        # Update usage statistics
+        conn.execute("""
+            UPDATE saved_reports 
+            SET generation_count = COALESCE(generation_count, 0) + 1,
+                last_generated = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, [report_id])
+        
+        logger.info(f"Updated usage stats for report ID: {report_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error updating usage stats for report {report_id}: {e}")
+        return False

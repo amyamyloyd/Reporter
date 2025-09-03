@@ -85,58 +85,92 @@ Build the REST API endpoints that will be called by the frontend and agents.
   - ✅ Agent workflows for explicit save operations
   - ✅ Manual report configuration and saving
 
-#### 1.5 `/saved_queries` Endpoint
+#### 1.5 `/saved_queries` Endpoint ✅ **COMPLETED**
 - **Type**: GET
 - **Purpose**: Retrieve saved queries for navigation dropdown
-- **Params**: `doc_id` (string) OR `doc_ids` (array of strings)
+- **Params**: `doc_id` (string) OR `doc_ids` (comma-separated string)
 - **Query Logic**: `WHERE doc_id IN (provided_doc_ids)`
 - **Output**: List of query records with query_names, timestamps, and basic metadata
+- **Requirements**:
+  - ✅ Support single doc_id or multiple doc_ids (comma-separated)
+  - ✅ Return navigation-friendly data structure
+  - ✅ Input validation for missing parameters
+  - ✅ Proper error handling with 400/500 status codes
+- **Status**: **FULLY TESTED** with real data
+- **Test Results**:
+  - ✅ Single doc_id: Found 1 query for projects document
+  - ✅ Multiple doc_ids: Found 7 queries across 2 documents
+  - ✅ Input validation: Proper 400 errors for missing parameters
+  - ✅ Navigation data structure: Perfect format for frontend dropdowns
 - **Use Cases**:
-  - Frontend navigation: "Available Queries" dropdown
-  - Agent memory: Find relevant past queries for loaded documents
+  - ✅ Frontend navigation: "Available Queries" dropdown
+  - ✅ Agent memory: Find relevant past queries for loaded documents
 - **Frontend Integration**: Agent sends doc_ids from localStorage
 
-#### 1.6 `/saved_reports` Endpoint
+#### 1.6 `/saved_reports` Endpoint ✅ **COMPLETED**
 - **Type**: GET
 - **Purpose**: Retrieve saved reports for navigation dropdown
-- **Params**: `doc_id` (string) OR `doc_ids` (array of strings)
+- **Params**: `doc_id` (string) OR `doc_ids` (comma-separated string)
 - **Query Logic**: `WHERE doc_id IN (provided_doc_ids)`
 - **Output**: List of report records with report_names, timestamps, and basic metadata
+- **Requirements**:
+  - ✅ Support single doc_id or multiple doc_ids (comma-separated)
+  - ✅ Return navigation-friendly data structure
+  - ✅ Input validation for missing parameters
+  - ✅ Proper error handling with 400/500 status codes
+- **Status**: **FULLY TESTED** with real data
+- **Test Results**:
+  - ✅ Single doc_id: Found 4 reports for projects document
+  - ✅ Multiple doc_ids: Found 11 reports across 2 documents
+  - ✅ Input validation: Proper 400 errors for missing parameters
+  - ✅ Navigation data structure: Perfect format for frontend dropdowns
 - **Use Cases**:
-  - Frontend navigation: "Available Reports" dropdown
-  - Agent memory: Find relevant past reports for loaded documents
+  - ✅ Frontend navigation: "Available Reports" dropdown
+  - ✅ Agent memory: Find relevant past reports for loaded documents
 - **Frontend Integration**: Agent sends doc_ids from localStorage
 
-#### 1.7 `/execute_query/{query_id}` Endpoint
+#### 1.7 `/execute_query/{query_name}` Endpoint
 - **Type**: GET
-- **Purpose**: Execute a saved query by ID and return results
-- **Params**: `query_id` (path parameter)
+- **Purpose**: Execute a saved query by name and return results
+
+- **Params**: `query_name` (path parameter - string) - e.g., "Lyft", "Disney clients", "temp_query"
 - **Behavior**:
-  - Fetch query details from `saved_queries` table
+  - Fetch query details from `saved_queries` table by `query_name`
   - Execute the stored SQL via DuckDB
   - Return results in same format as `/query` endpoint
   - Update `use_count` and `last_used` timestamp
-- **Output**: `sql`, `rows`, `columns`, `summary` (same as `/query`)
-- **Use Cases**:
-  - Click-to-run from navigation panel
-  - Agent re-execution of past queries
-  - Quick access to frequently used queries
+  - Handle missing query_name with 404 error
+- **Output**: `sql`, `rows`, `columns`, `summary`, `query_id`, `query_name`, `execution_time`
+- **Usage Patterns**:
+  - **Frontend Navigation Click-to-Run**: User clicks saved query in navigation dropdown
+  - **Agent Programmatic Execution**: ConversationalAgent re-runs past queries by name (e.g., "run the Lyft query")
+  - **Quick Access**: Frequently used queries without re-typing
+- **Error Handling**:
+  - 404: Query name not found
+  - 500: SQL execution error
+  - 400: Invalid query_name format
 
 #### 1.8 `/execute_report/{report_id}` Endpoint
 - **Type**: GET
 - **Purpose**: Execute a saved report by ID and return formatted output
-- **Params**: `report_id` (path parameter)
+- **Params**: `report_id` (path parameter - integer)
 - **Behavior**:
-  - Fetch report details from `saved_reports` table
+  - Fetch report details from `saved_reports` table by `report_id`
   - Execute the stored SQL via DuckDB
   - Generate output using `report_builder.py`
   - Return formatted results (HTML, XLSX, or JSON)
   - Update `generation_count` and `last_generated` timestamp
-- **Output**: Same format as `/report` endpoint
-- **Use Cases**:
-  - Click-to-run from navigation panel
-  - Agent re-execution of past reports
-  - Download links for long results
+  - Handle missing report_id with 404 error
+- **Output**: Same format as `/report` endpoint with execution metadata
+- **Usage Patterns**:
+  - **Frontend Navigation Click-to-Run**: User clicks saved report in navigation dropdown
+  - **Agent Programmatic Execution**: ConversationalAgent re-runs past reports
+  - **Download Links**: For long results, provide download URLs
+  - **Report Regeneration**: Update reports with fresh data
+- **Error Handling**:
+  - 404: Report ID not found
+  - 500: SQL execution or report generation error
+  - 400: Invalid report_id format
 
 ---
 
@@ -289,12 +323,14 @@ backend/
 - [x] `/query` endpoint implemented and tested ✅
 - [x] `/report` endpoint implemented and tested ✅
 - [x] `/save_query` endpoint implemented and tested ✅
-- [ ] `/save_report` endpoint implemented and tested
-- [ ] `/saved_queries` endpoint implemented and tested
-- [ ] `/saved_reports` endpoint implemented and tested
+- [x] `/save_report` endpoint implemented and tested ✅
+- [x] `/saved_queries` endpoint implemented and tested ✅
+- [x] `/saved_reports` endpoint implemented and tested ✅
 - [x] DuckDB tables created and populated ✅
 - [x] .json metadata files working ✅
 - [x] Error handling implemented ✅
+- [ ] `/execute_query/{query_id}` endpoint implemented and tested
+- [ ] `/execute_report/{report_id}` endpoint implemented and tested
 - [ ] API documentation complete
 
 ### Phase 2 Complete When:
@@ -334,25 +370,26 @@ backend/
 
 ## 📝 Next Steps
 
-**Phase 1 Progress: 4/8 endpoints completed**
+**Phase 1 Progress: 6/8 endpoints completed (75% complete)**
 
 ✅ **Completed:**
 - `/query` endpoint - Natural language to SQL with DuckDB execution
 - `/report` endpoint - Generate reports with SQL input and multiple output formats
 - `/save_query` endpoint - Persist queries to DuckDB and .json metadata
 - `/save_report` endpoint - Persist reports to DuckDB and .json metadata
+- `/saved_queries` endpoint - Navigation support for queries (single/multiple doc_ids)
+- `/saved_reports` endpoint - Navigation support for reports (single/multiple doc_ids)
 
-🔄 **Next: Phase 1.5 `/saved_queries` endpoint**
-- **Purpose**: Retrieve saved queries for frontend navigation and recent queries display
-- **Type**: GET
-- **Params**: `doc_id` (single or multiple), `tags`, `date_range`
-- **Output**: Matching entries from `saved_queries` table
-- **Frontend Integration**: Support "Available Queries" navigation based on localStorage doc_ids
+🔄 **Next: Phase 1.7 & 1.8 Execution Endpoints**
+- **Purpose**: Execute saved queries and reports by ID for dual usage patterns
+- **Type**: GET with path parameters
+- **Dual Usage**: Frontend click-to-run + Agent programmatic execution
+- **Behavior**: Fetch details, execute SQL, return results, update usage stats
+- **Output**: Same format as original endpoints with execution metadata
+- **Use Cases**: Navigation panel clicks, agent re-execution, quick access
 
 **Remaining Phase 1 endpoints:**
-- `/saved_queries` endpoint (GET) - Navigation support for queries
-- `/saved_reports` endpoint (GET) - Navigation support for reports
 - `/execute_query/{query_id}` endpoint (GET) - Execute saved queries by ID
 - `/execute_report/{report_id}` endpoint (GET) - Execute saved reports by ID
 
-**Ready to proceed to Phase 1.5: `/saved_queries` endpoint implementation for navigation system.**
+**Ready to proceed to Phase 1.7: `/execute_query/{query_id}` endpoint for execution functionality.**

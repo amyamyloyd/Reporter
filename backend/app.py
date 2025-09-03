@@ -2237,6 +2237,123 @@ async def execute_query_endpoint(query_name: str):
         logger.error(f"Unexpected error in execute_query endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
 
+@app.get("/execute_report/{report_name}")
+async def execute_report_endpoint(report_name: str):
+    """
+    Execute saved report endpoint - Run saved reports by name
+    
+    Supports both frontend click-to-run and agent programmatic execution.
+    Updates usage statistics and returns results in same format as /report endpoint.
+    """
+    try:
+        # Validate report_name
+        if not report_name or not report_name.strip():
+            raise HTTPException(status_code=400, detail="Invalid report_name. Must be non-empty string.")
+        
+        # Ensure database tables exist
+        ensure_all_tables_exist()
+        conn = create_persistent_database()
+        
+        # Look up report directly in saved_reports table
+        report_result = conn.execute("""
+            SELECT id, doc_id, report_name, sql, filters, group_by, 
+                   format, chart, output_type, description, created_date,
+                   generation_count, last_generated
+            FROM saved_reports 
+            WHERE report_name = ?
+        """, [report_name.strip()]).fetchone()
+        
+        if not report_result:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Report with name '{report_name}' not found")
+        
+        # Extract report information
+        report_id = report_result[0]
+        doc_id = report_result[1]
+        sql_query = report_result[3]
+        filters = report_result[4]
+        group_by = report_result[5]
+        format_type = report_result[6]
+        chart = report_result[7]
+        output_type = report_result[8]
+        description = report_result[9]
+        
+        logger.info(f"Executing saved report: {report_name} (ID: {report_id})")
+        
+        # Load JSON metadata to get correct table name
+        from utils.json_store import load_metadata
+        doc_metadata = load_metadata(doc_id)
+        if doc_metadata and "duckdb_table_name" in doc_metadata:
+            correct_table_name = doc_metadata["duckdb_table_name"]
+            # Fix the SQL query to use the correct table name
+            import re
+            # Find the table name in the SQL (after FROM keyword)
+            sql_query = re.sub(r'FROM\s+\w+', f'FROM {correct_table_name}', sql_query, flags=re.IGNORECASE)
+            logger.info(f"Corrected SQL to use table: {correct_table_name}")
+        else:
+            logger.warning(f"Could not load metadata for doc_id: {doc_id}")
+        
+        # Execute the SQL query via DuckDB
+        try:
+            # Execute the query
+            result = conn.execute(sql_query).fetchall()
+            columns = [desc[0] for desc in conn.description] if conn.description else []
+            
+            # Convert result to list of lists for JSON serialization
+            rows = [list(row) for row in result]
+            
+            # Generate report output using existing report generation logic
+            # For now, return a simple summary - can be enhanced later
+            report_output = {
+                "summary": f"Report '{report_name}' executed successfully with {len(rows)} rows",
+                "format": format_type,
+                "output_type": output_type,
+                "chart": chart,
+                "description": description
+            }
+            
+            # Update usage statistics directly
+            conn.execute("""
+                UPDATE saved_reports 
+                SET generation_count = COALESCE(generation_count, 0) + 1,
+                    last_generated = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, [report_id])
+            
+            conn.close()
+            
+            # Return results in same format as /report endpoint
+            return {
+                "success": True,
+                "message": f"Successfully executed report: {report_name}",
+                "report_id": report_id,
+                "report_name": report_name,
+                "sql": sql_query,
+                "rows": rows,
+                "columns": columns,
+                "filters": filters,
+                "group_by": group_by,
+                "format": format_type,
+                "chart": chart,
+                "output_type": output_type,
+                "description": description,
+                "report_output": report_output,
+                "execution_time": datetime.now().isoformat(),
+                "doc_id": doc_id,
+                "row_count": len(rows)
+            }
+            
+        except Exception as sql_error:
+            conn.close()
+            logger.error(f"SQL execution error for report {report_name}: {sql_error}")
+            raise HTTPException(status_code=500, detail=f"Report execution failed: {str(sql_error)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in execute_report endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Report execution failed: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

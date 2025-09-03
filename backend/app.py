@@ -1676,6 +1676,225 @@ async def report_endpoint(request: Dict[str, Any]):
         logger.error(f"Unexpected error in report endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Report processing failed: {str(e)}")
 
+@app.post("/save_query")
+async def save_query_endpoint(request: Dict[str, Any]):
+    """
+    Save query endpoint - Persist queries to DuckDB and .json
+    
+    This endpoint saves query information to both the DuckDB saved_queries table
+    and appends it to the document's JSON metadata file.
+    
+    Input format (exactly as specified):
+    {
+        "doc_id": "hospital_ledger_fy2024_001",
+        "query_text": "How much did we spend on Vendor X in Q2?",
+        "sql": "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X' AND Quarter = 'Q2'",
+        "query_name": "Quarterly Vendor Spend",
+        "tags": ["vendor", "q2", "spending"]
+    }
+    
+    Output: Success confirmation with saved query details
+    """
+    try:
+        # Extract and validate required fields
+        doc_id = request.get("doc_id")
+        query_text = request.get("query_text")
+        sql = request.get("sql")
+        query_name = request.get("query_name")
+        tags = request.get("tags", [])
+        
+        # Validate required fields
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="Missing required field: doc_id")
+        if not query_text:
+            raise HTTPException(status_code=400, detail="Missing required field: query_text")
+        if not sql:
+            raise HTTPException(status_code=400, detail="Missing required field: sql")
+        if not query_name:
+            raise HTTPException(status_code=400, detail="Missing required field: query_name")
+        
+        logger.info(f"Saving query for doc_id: {doc_id}")
+        logger.info(f"Query name: {query_name}")
+        
+        # Verify document metadata exists
+        doc_metadata = load_metadata(doc_id)
+        if not doc_metadata:
+            raise HTTPException(status_code=404, detail=f"Document metadata not found for doc_id: {doc_id}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Save query to DuckDB saved_queries table
+        save_success = save_query(
+            conn=conn,
+            doc_id=doc_id,
+            query_name=query_name,
+            query_text=query_text,
+            sql=sql,
+            tags=tags,
+            description=f"Saved query: {query_name}"
+        )
+        
+        if not save_success:
+            conn.close()
+            raise HTTPException(status_code=500, detail="Failed to save query to DuckDB")
+        
+        logger.info(f"Query saved successfully to DuckDB: {query_name}")
+        
+        # Append query to document metadata JSON
+        query_data = {
+            "query_name": query_name,
+            "query_text": query_text,
+            "sql": sql,
+            "tags": tags,
+            "saved_timestamp": datetime.now().isoformat()
+        }
+        
+        append_success = append_query_to_metadata(doc_id, query_data)
+        if not append_success:
+            logger.warning(f"Failed to append query to document metadata for doc_id: {doc_id}")
+        
+        # Close database connection
+        conn.close()
+        
+        # Return success response
+        return {
+            "success": True,
+            "message": f"Query '{query_name}' saved successfully",
+            "doc_id": doc_id,
+            "query_name": query_name,
+            "query_text": query_text,
+            "sql": sql,
+            "tags": tags,
+            "saved_to_db": save_success,
+            "saved_to_metadata": append_success,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in save_query endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Save query processing failed: {str(e)}")
+
+@app.post("/save_report")
+async def save_report_endpoint(request: Dict[str, Any]):
+    """
+    Save report endpoint - Persist reports to DuckDB and .json
+    
+    This endpoint saves report information to both the DuckDB saved_reports table
+    and appends it to the document's JSON metadata file.
+    
+    Input format (exactly as specified):
+    {
+        "doc_id": "hospital_ledger_fy2024_001",
+        "report_name": "Weekly Vendor Spend",
+        "sql": "SELECT Week, SUM(Amount) FROM hospital_ledger_fy2024_001 GROUP BY Week",
+        "filters": {"vendor": "Vendor X", "quarter": "Q2"},
+        "group_by": ["Week"],
+        "format": "chart",
+        "chart": "bar",
+        "description": "Summarizes weekly spending by vendor."
+    }
+    
+    Output: Success confirmation with saved report details
+    """
+    try:
+        # Extract and validate required fields
+        doc_id = request.get("doc_id")
+        report_name = request.get("report_name")
+        sql = request.get("sql", "")  # SQL is optional for save_report
+        filters = request.get("filters", {})
+        group_by = request.get("group_by", [])
+        format_type = request.get("format", "table")
+        chart = request.get("chart", "")
+        description = request.get("description", "")
+        
+        # Validate required fields
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="Missing required field: doc_id")
+        if not report_name:
+            raise HTTPException(status_code=400, detail="Missing required field: report_name")
+        
+        logger.info(f"Saving report for doc_id: {doc_id}")
+        logger.info(f"Report name: {report_name}")
+        
+        # Verify document metadata exists
+        doc_metadata = load_metadata(doc_id)
+        if not doc_metadata:
+            raise HTTPException(status_code=404, detail=f"Document metadata not found for doc_id: {doc_id}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Save report to DuckDB saved_reports table
+        save_success = save_report(
+            conn=conn,
+            doc_id=doc_id,
+            report_name=report_name,
+            sql=sql,
+            filters=filters,
+            group_by=group_by,
+            format=format_type,
+            chart=chart,
+            output_type="html",  # Default output type for saved reports
+            description=description
+        )
+        
+        if not save_success:
+            conn.close()
+            raise HTTPException(status_code=500, detail="Failed to save report to DuckDB")
+        
+        logger.info(f"Report saved successfully to DuckDB: {report_name}")
+        
+        # Append report to document metadata JSON
+        report_data = {
+            "report_name": report_name,
+            "sql": sql,
+            "filters": filters,
+            "group_by": group_by,
+            "format": format_type,
+            "chart": chart,
+            "description": description,
+            "saved_timestamp": datetime.now().isoformat()
+        }
+        
+        append_success = append_report_to_metadata(doc_id, report_data)
+        if not append_success:
+            logger.warning(f"Failed to append report to document metadata for doc_id: {doc_id}")
+        
+        # Close database connection
+        conn.close()
+        
+        # Return success response
+        return {
+            "success": True,
+            "message": f"Report '{report_name}' saved successfully",
+            "doc_id": doc_id,
+            "report_name": report_name,
+            "sql": sql,
+            "filters": filters,
+            "group_by": group_by,
+            "format": format_type,
+            "chart": chart,
+            "description": description,
+            "saved_to_db": save_success,
+            "saved_to_metadata": append_success,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in save_report endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Save report processing failed: {str(e)}")
+
 async def interpret_report_name(report_name: str, table_name: str, schema: List[str],
                               filters: Dict[str, Any], group_by: List[str], 
                               format_type: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
@@ -1771,17 +1990,6 @@ Generate configuration for this report:"""
             
             # Fix DuckDB syntax: replace backticks with double quotes for column names
             sql_query = interpreted_config["sql"].replace("`", '"')
-            
-            # Fix column names with spaces - ensure they're properly quoted
-            import re
-            column_pattern = r'\b([A-Za-z][A-Za-z0-9_\s]*[A-Za-z0-9_])\b'
-            def quote_column(match):
-                col_name = match.group(1)
-                if ' ' in col_name and not (col_name.startswith('"') and col_name.endswith('"')):
-                    return f'"{col_name}"'
-                return col_name
-            
-            sql_query = re.sub(column_pattern, quote_column, sql_query)
             interpreted_config["sql"] = sql_query
             
             logger.info(f"Interpreted report configuration: {interpreted_config}")

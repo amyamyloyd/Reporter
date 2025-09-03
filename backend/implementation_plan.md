@@ -49,22 +49,41 @@ Build the REST API endpoints that will be called by the frontend and agents.
   - ✅ Auto-save: Reports saved to `saved_reports` table and JSON metadata
   - ✅ Return format: Comprehensive dictionary with all agent-required data
 
-#### 1.3 `/save_query` Endpoint
+#### 1.3 `/save_query` Endpoint ✅ **COMPLETED**
 - **Type**: POST
 - **Purpose**: Persist queries to DuckDB and .json
 - **Input**: `doc_id`, `query_text`, `sql`, `query_name`, `tags`
 - **Requirements**:
-  - Save to DuckDB `saved_queries` table
-  - Append to document's `.json` file
-  - Store: doc_id, query_name, sql, query_text, tags, timestamp
+  - ✅ Save to DuckDB `saved_queries` table
+  - ✅ Append to document's `.json` file
+  - ✅ Store: doc_id, query_name, sql, query_text, tags, timestamp
+- **Status**: **FULLY TESTED** with real data
+- **Test Results**:
+  - ✅ Successfully saves queries to DuckDB saved_queries table
+  - ✅ Appends query data to document JSON metadata
+  - ✅ Input validation working correctly (400 errors for missing fields)
+  - ✅ Returns comprehensive success response with save status
 
-#### 1.4 `/save_report` Endpoint
+#### 1.4 `/save_report` Endpoint ✅ **COMPLETED**
 - **Type**: POST  
 - **Purpose**: Persist reports to DuckDB and .json
 - **Input**: `doc_id`, `report_name`, `sql`, `filters`, `group_by`, `format`, `chart`, `description`
 - **Requirements**:
-  - Save to DuckDB `saved_reports` table
-  - Append to document's `.json`
+  - ✅ Save to DuckDB `saved_reports` table
+  - ✅ Append to document's `.json` file
+  - ✅ Store: doc_id, report_name, sql, filters, group_by, format, chart, description, timestamp
+- **Status**: **FULLY TESTED** with real data
+- **Test Results**:
+  - ✅ Successfully saves reports to DuckDB saved_reports table
+  - ✅ Appends report data to document JSON metadata
+  - ✅ Input validation working correctly (400 errors for missing fields)
+  - ✅ Returns comprehensive success response with save status
+  - ✅ Handles all report formats (table, chart) and chart types (bar, pie)
+- **Use Cases**:
+  - ✅ Save pre-configured reports without generating them
+  - ✅ Rename existing reports (change "temp_report" to custom name)
+  - ✅ Agent workflows for explicit save operations
+  - ✅ Manual report configuration and saving
 
 #### 1.5 `/saved_queries` Endpoint
 - **Type**: GET
@@ -228,7 +247,7 @@ backend/
 ### Phase 1 Complete When:
 - [x] `/query` endpoint implemented and tested ✅
 - [x] `/report` endpoint implemented and tested ✅
-- [ ] `/save_query` endpoint implemented and tested
+- [x] `/save_query` endpoint implemented and tested ✅
 - [ ] `/save_report` endpoint implemented and tested
 - [ ] `/saved_queries` endpoint implemented and tested
 - [ ] `/saved_reports` endpoint implemented and tested
@@ -274,20 +293,22 @@ backend/
 
 ## 📝 Next Steps
 
-**Phase 1 Progress: 2/6 endpoints completed**
+**Phase 1 Progress: 4/6 endpoints completed**
 
 ✅ **Completed:**
 - `/query` endpoint - Natural language to SQL with DuckDB execution
 - `/report` endpoint - Generate reports with SQL input and multiple output formats
+- `/save_query` endpoint - Persist queries to DuckDB and .json metadata
+- `/save_report` endpoint - Persist reports to DuckDB and .json metadata
 
-🔄 **Next: Phase 1.3 `/save_query` endpoint**
-- **Purpose**: Persist queries to DuckDB and .json
-- **Input**: `doc_id`, `query_text`, `sql`, `query_name`, `tags`
-- **Requirements**: Save to DuckDB `saved_queries` table and append to document's `.json` file
+🔄 **Next: Phase 1.5 `/saved_queries` endpoint**
+- **Purpose**: Retrieve saved queries with filtering
+- **Type**: GET
+- **Params**: `doc_id`, `tags`, `date_range`
+- **Output**: Matching entries from `saved_queries` table
 
 **Remaining Phase 1 endpoints:**
-- `/save_report` endpoint
 - `/saved_queries` endpoint (GET)
 - `/saved_reports` endpoint (GET)
 
-**Ready to proceed to Phase 1.3: `/save_query` endpoint implementation.**
+**Ready to proceed to Phase 1.5: `/saved_queries` endpoint implementation.**

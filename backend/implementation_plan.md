@@ -87,15 +87,56 @@ Build the REST API endpoints that will be called by the frontend and agents.
 
 #### 1.5 `/saved_queries` Endpoint
 - **Type**: GET
-- **Purpose**: Retrieve saved queries with filtering
-- **Params**: `doc_id`, `tags`, `date_range`
-- **Output**: Matching entries from `saved_queries`
-ervice
+- **Purpose**: Retrieve saved queries for navigation dropdown
+- **Params**: `doc_id` (string) OR `doc_ids` (array of strings)
+- **Query Logic**: `WHERE doc_id IN (provided_doc_ids)`
+- **Output**: List of query records with query_names, timestamps, and basic metadata
+- **Use Cases**:
+  - Frontend navigation: "Available Queries" dropdown
+  - Agent memory: Find relevant past queries for loaded documents
+- **Frontend Integration**: Agent sends doc_ids from localStorage
+
 #### 1.6 `/saved_reports` Endpoint
 - **Type**: GET
-- **Purpose**: Retrieve saved reports with filtering  
-- **Params**: `doc_id`, `tags`, `output_type`
-- **Output**: Matching entries from `saved_reports`
+- **Purpose**: Retrieve saved reports for navigation dropdown
+- **Params**: `doc_id` (string) OR `doc_ids` (array of strings)
+- **Query Logic**: `WHERE doc_id IN (provided_doc_ids)`
+- **Output**: List of report records with report_names, timestamps, and basic metadata
+- **Use Cases**:
+  - Frontend navigation: "Available Reports" dropdown
+  - Agent memory: Find relevant past reports for loaded documents
+- **Frontend Integration**: Agent sends doc_ids from localStorage
+
+#### 1.7 `/execute_query/{query_id}` Endpoint
+- **Type**: GET
+- **Purpose**: Execute a saved query by ID and return results
+- **Params**: `query_id` (path parameter)
+- **Behavior**:
+  - Fetch query details from `saved_queries` table
+  - Execute the stored SQL via DuckDB
+  - Return results in same format as `/query` endpoint
+  - Update `use_count` and `last_used` timestamp
+- **Output**: `sql`, `rows`, `columns`, `summary` (same as `/query`)
+- **Use Cases**:
+  - Click-to-run from navigation panel
+  - Agent re-execution of past queries
+  - Quick access to frequently used queries
+
+#### 1.8 `/execute_report/{report_id}` Endpoint
+- **Type**: GET
+- **Purpose**: Execute a saved report by ID and return formatted output
+- **Params**: `report_id` (path parameter)
+- **Behavior**:
+  - Fetch report details from `saved_reports` table
+  - Execute the stored SQL via DuckDB
+  - Generate output using `report_builder.py`
+  - Return formatted results (HTML, XLSX, or JSON)
+  - Update `generation_count` and `last_generated` timestamp
+- **Output**: Same format as `/report` endpoint
+- **Use Cases**:
+  - Click-to-run from navigation panel
+  - Agent re-execution of past reports
+  - Download links for long results
 
 ---
 
@@ -293,7 +334,7 @@ backend/
 
 ## 📝 Next Steps
 
-**Phase 1 Progress: 4/6 endpoints completed**
+**Phase 1 Progress: 4/8 endpoints completed**
 
 ✅ **Completed:**
 - `/query` endpoint - Natural language to SQL with DuckDB execution
@@ -302,13 +343,16 @@ backend/
 - `/save_report` endpoint - Persist reports to DuckDB and .json metadata
 
 🔄 **Next: Phase 1.5 `/saved_queries` endpoint**
-- **Purpose**: Retrieve saved queries with filtering
+- **Purpose**: Retrieve saved queries for frontend navigation and recent queries display
 - **Type**: GET
-- **Params**: `doc_id`, `tags`, `date_range`
+- **Params**: `doc_id` (single or multiple), `tags`, `date_range`
 - **Output**: Matching entries from `saved_queries` table
+- **Frontend Integration**: Support "Available Queries" navigation based on localStorage doc_ids
 
 **Remaining Phase 1 endpoints:**
-- `/saved_queries` endpoint (GET)
-- `/saved_reports` endpoint (GET)
+- `/saved_queries` endpoint (GET) - Navigation support for queries
+- `/saved_reports` endpoint (GET) - Navigation support for reports
+- `/execute_query/{query_id}` endpoint (GET) - Execute saved queries by ID
+- `/execute_report/{report_id}` endpoint (GET) - Execute saved reports by ID
 
-**Ready to proceed to Phase 1.5: `/saved_queries` endpoint implementation.**
+**Ready to proceed to Phase 1.5: `/saved_queries` endpoint implementation for navigation system.**

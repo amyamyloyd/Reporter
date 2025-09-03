@@ -233,7 +233,8 @@ def save_report(conn: duckdb.DuckDBPyConnection, doc_id: str, report_name: str,
         return False
 
 def get_saved_queries(conn: duckdb.DuckDBPyConnection, doc_id: str = None, 
-                     tags: List[str] = None, date_range: Dict[str, str] = None) -> List[Dict[str, Any]]:
+                     doc_ids: List[str] = None, tags: List[str] = None, 
+                     date_range: Dict[str, str] = None) -> List[Dict[str, Any]]:
     """
     Retrieve saved queries with optional filtering
     
@@ -242,7 +243,8 @@ def get_saved_queries(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
     
     Args:
         conn: DuckDB connection
-        doc_id: Filter by document ID (optional)
+        doc_id: Filter by single document ID (optional)
+        doc_ids: Filter by multiple document IDs (optional)
         tags: Filter by tags (optional)
         date_range: Filter by date range with 'start' and 'end' keys (optional)
         
@@ -264,6 +266,11 @@ def get_saved_queries(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
         if doc_id:
             where_conditions.append("doc_id = ?")
             params.append(doc_id)
+        elif doc_ids:
+            # Handle multiple doc_ids
+            placeholders = ','.join(['?' for _ in doc_ids])
+            where_conditions.append(f"doc_id IN ({placeholders})")
+            params.extend(doc_ids)
         
         if tags:
             # Search for any of the provided tags in the JSON tags field
@@ -320,7 +327,8 @@ def get_saved_queries(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
         return []
 
 def get_saved_reports(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
-                     tags: List[str] = None, output_type: str = None) -> List[Dict[str, Any]]:
+                     doc_ids: List[str] = None, tags: List[str] = None, 
+                     output_type: str = None) -> List[Dict[str, Any]]:
     """
     Retrieve saved reports with optional filtering
     
@@ -329,7 +337,8 @@ def get_saved_reports(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
     
     Args:
         conn: DuckDB connection
-        doc_id: Filter by document ID (optional)
+        doc_id: Filter by single document ID (optional)
+        doc_ids: Filter by multiple document IDs (optional)
         tags: Filter by tags in report name or description (optional)
         output_type: Filter by output type (optional)
         
@@ -350,6 +359,11 @@ def get_saved_reports(conn: duckdb.DuckDBPyConnection, doc_id: str = None,
         if doc_id:
             where_conditions.append("doc_id = ?")
             params.append(doc_id)
+        elif doc_ids:
+            # Handle multiple doc_ids
+            placeholders = ','.join(['?' for _ in doc_ids])
+            where_conditions.append(f"doc_id IN ({placeholders})")
+            params.extend(doc_ids)
         
         if tags:
             # Search for any of the provided tags in report name or description

@@ -1895,6 +1895,128 @@ async def save_report_endpoint(request: Dict[str, Any]):
         logger.error(f"Unexpected error in save_report endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Save report processing failed: {str(e)}")
 
+@app.get("/saved_queries")
+async def get_saved_queries_endpoint(doc_id: str = None, doc_ids: str = None):
+    """
+    Get saved queries endpoint - Retrieve saved queries for navigation
+    
+    This endpoint retrieves saved queries for the frontend navigation system.
+    Supports both single doc_id and multiple doc_ids for multi-document sessions.
+    
+    Query Parameters:
+    - doc_id: Single document ID (string)
+    - doc_ids: Comma-separated list of document IDs (string)
+    
+    Returns:
+    - List of saved queries with navigation data
+    """
+    try:
+        # Parse doc_ids parameter if provided
+        doc_id_list = []
+        if doc_id:
+            doc_id_list.append(doc_id)
+        elif doc_ids:
+            # Split comma-separated doc_ids
+            doc_id_list = [id.strip() for id in doc_ids.split(',') if id.strip()]
+        
+        if not doc_id_list:
+            raise HTTPException(status_code=400, detail="Missing required parameter: doc_id or doc_ids")
+        
+        logger.info(f"Retrieving saved queries for doc_ids: {doc_id_list}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Get saved queries using the utility function
+        from utils.duckdb_manager import get_saved_queries
+        
+        if len(doc_id_list) == 1:
+            queries = get_saved_queries(conn, doc_id=doc_id_list[0])
+        else:
+            queries = get_saved_queries(conn, doc_ids=doc_id_list)
+        
+        # Close database connection
+        conn.close()
+        
+        # Return navigation-focused response
+        return {
+            "success": True,
+            "message": f"Retrieved {len(queries)} saved queries",
+            "doc_ids": doc_id_list,
+            "queries": queries,
+            "count": len(queries)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_saved_queries endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve saved queries: {str(e)}")
+
+@app.get("/saved_reports")
+async def get_saved_reports_endpoint(doc_id: str = None, doc_ids: str = None):
+    """
+    Get saved reports endpoint - Retrieve saved reports for navigation
+    
+    This endpoint retrieves saved reports for the frontend navigation system.
+    Supports both single doc_id and multiple doc_ids for multi-document sessions.
+    
+    Query Parameters:
+    - doc_id: Single document ID (string)
+    - doc_ids: Comma-separated list of document IDs (string)
+    
+    Returns:
+    - List of saved reports with navigation data
+    """
+    try:
+        # Parse doc_ids parameter if provided
+        doc_id_list = []
+        if doc_id:
+            doc_id_list.append(doc_id)
+        elif doc_ids:
+            # Split comma-separated doc_ids
+            doc_id_list = [id.strip() for id in doc_ids.split(',') if id.strip()]
+        
+        if not doc_id_list:
+            raise HTTPException(status_code=400, detail="Missing required parameter: doc_id or doc_ids")
+        
+        logger.info(f"Retrieving saved reports for doc_ids: {doc_id_list}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Get saved reports using the utility function
+        from utils.duckdb_manager import get_saved_reports
+        
+        if len(doc_id_list) == 1:
+            reports = get_saved_reports(conn, doc_id=doc_id_list[0])
+        else:
+            reports = get_saved_reports(conn, doc_ids=doc_id_list)
+        
+        # Close database connection
+        conn.close()
+        
+        # Return navigation-focused response
+        return {
+            "success": True,
+            "message": f"Retrieved {len(reports)} saved reports",
+            "doc_ids": doc_id_list,
+            "reports": reports,
+            "count": len(reports)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_saved_reports endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve saved reports: {str(e)}")
+
 async def interpret_report_name(report_name: str, table_name: str, schema: List[str],
                               filters: Dict[str, Any], group_by: List[str], 
                               format_type: str, metadata: Dict[str, Any]) -> Dict[str, Any]:

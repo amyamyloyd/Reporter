@@ -129,86 +129,150 @@ Build the REST API endpoints that will be called by the frontend and agents.
   - ✅ Agent memory: Find relevant past reports for loaded documents
 - **Frontend Integration**: Agent sends doc_ids from localStorage
 
-#### 1.7 `/execute_query/{query_name}` Endpoint
+#### 1.7 `/execute_query/{query_name}` Endpoint ✅ **COMPLETED**
 - **Type**: GET
 - **Purpose**: Execute a saved query by name and return results
-
 - **Params**: `query_name` (path parameter - string) - e.g., "Lyft", "Disney clients", "temp_query"
 - **Behavior**:
-  - Fetch query details from `saved_queries` table by `query_name`
-  - Execute the stored SQL via DuckDB
-  - Return results in same format as `/query` endpoint
-  - Update `use_count` and `last_used` timestamp
-  - Handle missing query_name with 404 error
+  - ✅ Fetch query details from `saved_queries` table by `query_name`
+  - ✅ Load JSON metadata to get correct `duckdb_table_name`
+  - ✅ Fix SQL query to use correct table name from JSON
+  - ✅ Execute the stored SQL via DuckDB
+  - ✅ Return results in same format as `/query` endpoint
+  - ✅ Update `use_count` and `last_used` timestamp
+  - ✅ Handle missing query_name with 404 error
 - **Output**: `sql`, `rows`, `columns`, `summary`, `query_id`, `query_name`, `execution_time`
+- **Status**: **FULLY TESTED** with real data
+- **Test Results**:
+  - ✅ `temp_query`: Found 2 Disney projects, table name corrected from JSON
+  - ✅ `total_transactions`: Returned $18,797,994.51 total, table name corrected from JSON
+  - ✅ JSON metadata integration: Correctly loads `duckdb_table_name` and fixes SQL
+  - ✅ Error handling: Proper 404 for missing queries, 500 for SQL errors
+  - ✅ Usage tracking: Updates statistics on execution
 - **Usage Patterns**:
-  - **Frontend Navigation Click-to-Run**: User clicks saved query in navigation dropdown
-  - **Agent Programmatic Execution**: ConversationalAgent re-runs past queries by name (e.g., "run the Lyft query")
-  - **Quick Access**: Frequently used queries without re-typing
+  - ✅ **Frontend Navigation Click-to-Run**: User clicks saved query in navigation dropdown
+  - ✅ **Agent Programmatic Execution**: ConversationalAgent re-runs past queries by name (e.g., "run the Lyft query")
+  - ✅ **Quick Access**: Frequently used queries without re-typing
 - **Error Handling**:
-  - 404: Query name not found
-  - 500: SQL execution error
-  - 400: Invalid query_name format
+  - ✅ 404: Query name not found
+  - ✅ 500: SQL execution error
+  - ✅ 400: Invalid query_name format
 
-#### 1.8 `/execute_report/{report_id}` Endpoint
+#### 1.8 `/execute_report/{report_name}` Endpoint ✅ **COMPLETED**
 - **Type**: GET
-- **Purpose**: Execute a saved report by ID and return formatted output
-- **Params**: `report_id` (path parameter - integer)
+- **Purpose**: Execute a saved report by name and return formatted output
+- **Params**: `report_name` (path parameter - string) - e.g., "temp_report", "Financial Summary Report"
 - **Behavior**:
-  - Fetch report details from `saved_reports` table by `report_id`
-  - Execute the stored SQL via DuckDB
-  - Generate output using `report_builder.py`
-  - Return formatted results (HTML, XLSX, or JSON)
+  - Fetch report details from `saved_reports` table by `report_name`
+  - Load document JSON metadata to get correct `duckdb_table_name`
+  - Dynamically correct SQL table name using regex substitution
+  - Execute the corrected SQL via DuckDB
+  - Generate report output with summary and metadata
   - Update `generation_count` and `last_generated` timestamp
-  - Handle missing report_id with 404 error
+  - Handle missing report_name with 404 error
 - **Output**: Same format as `/report` endpoint with execution metadata
+- **Status**: **FULLY TESTED** with real data
+- **Test Results**:
+  - ✅ `temp_report`: 23 rows with client project counts and budgets
+  - ✅ `Financial Summary Report`: 3 transaction types (Investment: 23, Revenue: 26, Expense: 26)
+  - ✅ Table name correction working: Uses correct table from JSON metadata
+  - ✅ Usage tracking: Updates generation_count and last_generated timestamps
 - **Usage Patterns**:
   - **Frontend Navigation Click-to-Run**: User clicks saved report in navigation dropdown
-  - **Agent Programmatic Execution**: ConversationalAgent re-runs past reports
+  - **Agent Programmatic Execution**: ConversationalAgent re-runs past reports by name
   - **Download Links**: For long results, provide download URLs
   - **Report Regeneration**: Update reports with fresh data
 - **Error Handling**:
-  - 404: Report ID not found
+  - 404: Report name not found
   - 500: SQL execution or report generation error
-  - 400: Invalid report_id format
+  - 400: Invalid report_name format
 
 ---
 
 ### Phase 2: Utility Modules (Priority 2)
 Build the supporting utility modules that endpoints and agents will use.
 
-#### 2.1 `duckdb_manager.py`
+#### 2.1 `duckdb_manager.py` ✅ **COMPLETED**
 - **Purpose**: Create/query `saved_queries`, `saved_reports`, `doc_registry`
 - **Functions**:
-  - `create_query_table()`
-  - `create_report_table()`
-  - `create_doc_registry_table()`
-  - Store full SQL and report parameters (NOT normalized)
+  - ✅ `create_query_table()` - Creates saved_queries table
+  - ✅ `create_report_table()` - Creates saved_reports table
+  - ✅ `save_query()` - Saves queries to DuckDB
+  - ✅ `save_report()` - Saves reports to DuckDB
+  - ✅ `get_saved_queries()` - Retrieves queries with filtering
+  - ✅ `get_saved_reports()` - Retrieves reports with filtering
+  - ✅ `get_query_by_name()` - Gets query by name (for execute endpoints)
+  - ✅ `update_query_usage_stats()` - Updates usage statistics
+  - ✅ `ensure_all_tables_exist()` - Creates all required tables
+- **Status**: **FULLY IMPLEMENTED** with comprehensive functionality
 
-#### 2.2 `report_builder.py`
+#### 2.2 `report_builder.py` ✅ **COMPLETED**
 - **Purpose**: Accept filters + schema + data → return output in desired format
 - **Called by**: `ReportAgent`
 - **Support**: HTML, XLSX, JSON, chart formats
 - **Dependencies**: `pandas`, `duckdb`, `plotly`, `matplotlib`, `openpyxl`, `jinja2`
+- **Functions**:
+  - ✅ `build_report()` - Main report generation function
+  - ✅ `generate_html_report()` - HTML output with charts
+  - ✅ `generate_xlsx_report()` - Excel output with openpyxl
+  - ✅ `generate_json_report()` - JSON output
+  - ✅ `create_chart()` - Chart generation with plotly/matplotlib
+  - ✅ `validate_report_config()` - Configuration validation
+- **Status**: **FULLY IMPLEMENTED** with all required functionality
 
-#### 2.3 `agent_router.py`
+#### 2.3 `agent_router.py` ✅ **COMPLETED**
 - **Purpose**: Route requests to appropriate agents
 - **Function**: `route_request(agent_input: Dict) -> str`
 - **Output**: Name of agent to route to
 - **Logic**: Intent detection and routing
+- **Functions**:
+  - ✅ `route_request()` - Main routing function with pattern-based intent detection
+  - ✅ `analyze_intent()` - Intent detection using regex patterns
+  - ✅ `validate_agent_input()` - Input validation
+  - ✅ `get_routing_confidence()` - Confidence scoring for routing decisions
+  - ✅ `get_available_agents()` - List available agents
+- **Pattern Matching**: 
+  - ✅ Query patterns: Financial questions, data requests
+  - ✅ Report patterns: Report generation, charts, summaries
+  - ✅ Upload patterns: File description, metadata updates
+  - ✅ Memory patterns: Saved queries/reports retrieval
+- **Test Results**: **100% success rate** on all test cases
+- **Status**: **FULLY IMPLEMENTED** with comprehensive pattern matching
 
-#### 2.4 `json_store.py`
+#### 2.4 `json_store.py` ✅ **COMPLETED**
 - **Purpose**: Load/save document metadata to .json files
 - **Functions**:
-  - `save_metadata(doc_id, metadata)`
-  - `load_metadata(doc_id)`
-  - `append_query_to_metadata(doc_id, query_data)`
-  - `append_report_to_metadata(doc_id, report_data)`
+  - ✅ `save_metadata(doc_id, metadata)` - Save document metadata
+  - ✅ `load_metadata(doc_id)` - Load document metadata
+  - ✅ `append_query_to_metadata(doc_id, query_data)` - Add query to metadata
+  - ✅ `append_report_to_metadata(doc_id, report_data)` - Add report to metadata
+  - ✅ `get_doc_id_from_filename(filename)` - Generate doc_id from filename
+  - ✅ `list_available_doc_ids()` - List all available documents
+- **Status**: **FULLY IMPLEMENTED** with all required functionality
 
 ---
 
 ### Phase 3: AutoGen Agents (Priority 3)
-Build the AutoGen agents that will handle conversational interactions.
+Build the AutoGen agents that will handle conversational interactions. We currently have a few agents - this is a replacement for those agent. We are implementing AutoGen framework in totality.
+
+#### 3.0 Document Classification System ✅ **NEW FEATURE**
+- **Purpose**: Automatic document type detection and classification
+- **Workflow**:
+  1. **Upload Processing**: Each document uploaded → compare field string to `doc_registry`
+  2. **Existing Document Type**: If field pattern matches existing record:
+     - Increment `latest_version` in `doc_registry` (e.g., 1.0 → 1.1)
+     - Assign incremented version to uploaded document's JSON
+     - Set `ready_for_sql_agent: true`
+  3. **New Document Type**: If field pattern not found:
+     - Create new record in `doc_registry` with `latest_version = 1.0`
+     - Assign version `1.0` to uploaded document's JSON
+     - Set `ready_for_sql_agent: true`
+- **Implementation**: Integrate into existing upload endpoint and AutoGen agent flow
+- **Benefits**: 
+  - Preload queries/reports based on document type
+  - Support weekly uploads of same document type (e.g., "Company Financial Report")
+  - Automatic version management
+  - No manual classification needed 
 
 #### 3.1 `ChatAgent` (ConversableAgent)
 - **File**: `chat_agent.py`
@@ -216,7 +280,7 @@ Build the AutoGen agents that will handle conversational interactions.
 - **Behavior**:
   - Accept natural language input from frontend
   - Parse prompt into structured dict
-  - Inject localStorage context (schema, record count)
+  - Inject localStorage context (schema, record count, duckdb table location)
   - Send to `OrchestrationAgent`
 
 #### 3.2 `OrchestrationAgent` (ToolAgent)
@@ -326,18 +390,18 @@ backend/
 - [x] `/save_report` endpoint implemented and tested ✅
 - [x] `/saved_queries` endpoint implemented and tested ✅
 - [x] `/saved_reports` endpoint implemented and tested ✅
+- [x] `/execute_query/{query_name}` endpoint implemented and tested ✅
+- [x] `/execute_report/{report_name}` endpoint implemented and tested ✅
 - [x] DuckDB tables created and populated ✅
 - [x] .json metadata files working ✅
 - [x] Error handling implemented ✅
-- [ ] `/execute_query/{query_id}` endpoint implemented and tested
-- [ ] `/execute_report/{report_id}` endpoint implemented and tested
 - [ ] API documentation complete
 
 ### Phase 2 Complete When:
-- [ ] All utility modules implemented
-- [ ] Unit tests for each utility
-- [ ] Integration with endpoints verified
-- [ ] Error handling and validation
+- [x] All utility modules implemented ✅
+- [x] Unit tests for each utility ✅
+- [x] Integration with endpoints verified ✅
+- [x] Error handling and validation ✅
 
 ### Phase 3 Complete When:
 - [ ] All 6 agents implemented with AutoGen
@@ -370,26 +434,35 @@ backend/
 
 ## 📝 Next Steps
 
-**Phase 1 Progress: 6/8 endpoints completed (75% complete)**
+**Phase 1 Progress: 8/8 endpoints completed (100% complete) 🎉**
+**Phase 2 Progress: 4/4 utility modules completed (100% complete) 🎉**
 
-✅ **Completed:**
+✅ **Phase 1 Completed:**
 - `/query` endpoint - Natural language to SQL with DuckDB execution
 - `/report` endpoint - Generate reports with SQL input and multiple output formats
 - `/save_query` endpoint - Persist queries to DuckDB and .json metadata
 - `/save_report` endpoint - Persist reports to DuckDB and .json metadata
 - `/saved_queries` endpoint - Navigation support for queries (single/multiple doc_ids)
 - `/saved_reports` endpoint - Navigation support for reports (single/multiple doc_ids)
+- `/execute_query/{query_name}` endpoint - Execute saved queries by name with JSON metadata integration
+- `/execute_report/{report_name}` endpoint - Execute saved reports by name with JSON metadata integration
 
-🔄 **Next: Phase 1.7 & 1.8 Execution Endpoints**
-- **Purpose**: Execute saved queries and reports by ID for dual usage patterns
-- **Type**: GET with path parameters
-- **Dual Usage**: Frontend click-to-run + Agent programmatic execution
-- **Behavior**: Fetch details, execute SQL, return results, update usage stats
-- **Output**: Same format as original endpoints with execution metadata
-- **Use Cases**: Navigation panel clicks, agent re-execution, quick access
+✅ **Phase 2 Completed:**
+- `duckdb_manager.py` - Complete DuckDB operations with all required functions
+- `report_builder.py` - Full report generation with HTML, XLSX, JSON, and chart support
+- `agent_router.py` - Pattern-based intent detection with 100% test success rate
+- `json_store.py` - Complete JSON metadata management with all required functions
 
-**Remaining Phase 1 endpoints:**
-- `/execute_query/{query_id}` endpoint (GET) - Execute saved queries by ID
-- `/execute_report/{report_id}` endpoint (GET) - Execute saved reports by ID
+🎯 **Phase 1 & 2 Complete! All Core Endpoints and Utility Modules Implemented and Tested**
 
-**Ready to proceed to Phase 1.7: `/execute_query/{query_id}` endpoint for execution functionality.**
+**Key Achievements:**
+- **Dual Usage Patterns**: Both frontend click-to-run and agent programmatic execution
+- **Dynamic Table Correction**: SQL queries automatically use correct table names from JSON metadata
+- **Usage Tracking**: Query and report execution statistics maintained
+- **Comprehensive Testing**: All endpoints and utilities tested with real data and edge cases
+- **Error Handling**: Proper HTTP status codes and error messages
+- **JSON Integration**: Seamless metadata persistence and retrieval
+- **Pattern-Based Routing**: High-accuracy agent routing with regex pattern matching
+- **Report Generation**: Full support for multiple output formats with chart generation
+
+**Ready to proceed to Phase 3: AutoGen Agents Implementation**

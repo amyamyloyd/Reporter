@@ -92,6 +92,199 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "environment": os.getenv("ENVIRONMENT", "development")}
 
+@app.get("/tables")
+async def view_tables():
+    """Display doc_registry, saved_queries, and saved_reports in HTML tables"""
+    try:
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Ensure all tables exist
+        ensure_all_tables_exist()
+        
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>AI Excel Reporting - Database Tables</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+                .container { max-width: 1200px; margin: 0 auto; }
+                h1 { color: #333; text-align: center; }
+                h2 { color: #666; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+                table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+                th { background-color: #f8f9fa; font-weight: bold; color: #333; }
+                tr:hover { background-color: #f5f5f5; }
+                .count { background-color: #e3f2fd; padding: 5px 10px; border-radius: 3px; font-weight: bold; }
+                .refresh { text-align: center; margin: 20px 0; }
+                .refresh a { background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
+                .refresh a:hover { background-color: #0056b3; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🗄️ AI Excel Reporting - Database Tables</h1>
+                <div class="refresh">
+                    <a href="/tables">🔄 Refresh</a>
+                </div>
+        """
+        
+        # Get doc_registry data
+        try:
+            doc_registry_result = conn.execute("SELECT * FROM doc_registry ORDER BY document_type, latest_version DESC").fetchall()
+            doc_registry_columns = [desc[0] for desc in conn.execute("PRAGMA table_info(doc_registry)").fetchall()]
+            
+            html_content += f"""
+                <h2>📋 Document Registry <span class="count">{len(doc_registry_result)} records</span></h2>
+                <table>
+                    <thead>
+                        <tr>
+            """
+            for col in doc_registry_columns:
+                html_content += f"<th>{col}</th>"
+            html_content += """
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            
+            for row in doc_registry_result:
+                html_content += "<tr>"
+                for value in row:
+                    html_content += f"<td>{value if value is not None else ''}</td>"
+                html_content += "</tr>"
+            
+            html_content += """
+                    </tbody>
+                </table>
+            """
+        except Exception as e:
+            html_content += f"<p>❌ Error loading doc_registry: {e}</p>"
+        
+        # Get saved_queries data
+        try:
+            saved_queries_result = conn.execute("SELECT * FROM saved_queries ORDER BY created_date DESC").fetchall()
+            saved_queries_columns = [desc[0] for desc in conn.execute("PRAGMA table_info(saved_queries)").fetchall()]
+            
+            html_content += f"""
+                <h2>🔍 Saved Queries <span class="count">{len(saved_queries_result)} records</span></h2>
+                <table>
+                    <thead>
+                        <tr>
+            """
+            for col in saved_queries_columns:
+                html_content += f"<th>{col}</th>"
+            html_content += """
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            
+            for row in saved_queries_result:
+                html_content += "<tr>"
+                for i, value in enumerate(row):
+                    # Truncate long SQL queries for display
+                    if saved_queries_columns[i] == 'sql' and value and len(str(value)) > 100:
+                        html_content += f"<td title='{value}'>{str(value)[:100]}...</td>"
+                    else:
+                        html_content += f"<td>{value if value is not None else ''}</td>"
+                html_content += "</tr>"
+            
+            html_content += """
+                    </tbody>
+                </table>
+            """
+        except Exception as e:
+            html_content += f"<p>❌ Error loading saved_queries: {e}</p>"
+        
+        # Get saved_reports data
+        try:
+            saved_reports_result = conn.execute("SELECT * FROM saved_reports ORDER BY created_date DESC").fetchall()
+            saved_reports_columns = [desc[0] for desc in conn.execute("PRAGMA table_info(saved_reports)").fetchall()]
+            
+            html_content += f"""
+                <h2>📊 Saved Reports <span class="count">{len(saved_reports_result)} records</span></h2>
+                <table>
+                    <thead>
+                        <tr>
+            """
+            for col in saved_reports_columns:
+                html_content += f"<th>{col}</th>"
+            html_content += """
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            
+            for row in saved_reports_result:
+                html_content += "<tr>"
+                for value in row:
+                    html_content += f"<td>{value if value is not None else ''}</td>"
+                html_content += "</tr>"
+            
+            html_content += """
+                    </tbody>
+                </table>
+            """
+        except Exception as e:
+            html_content += f"<p>❌ Error loading saved_reports: {e}</p>"
+        
+        # Close HTML
+        html_content += """
+            </div>
+        </body>
+        </html>
+        """
+        
+        conn.close()
+        
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content=html_content)
+        
+    except Exception as e:
+        error_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Error</title></head>
+        <body>
+            <h1>❌ Error Loading Tables</h1>
+            <p>{str(e)}</p>
+            <a href="/tables">🔄 Try Again</a>
+        </body>
+        </html>
+        """
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(content=error_html, status_code=500)
+
+@app.get("/download-excel/{filename}")
+async def download_excel(filename: str):
+    """Download Excel file generated from query results"""
+    try:
+        import os
+        from fastapi.responses import FileResponse
+        
+        # Security check - only allow alphanumeric, hyphens, underscores, and dots
+        if not re.match(r'^[a-zA-Z0-9._-]+\.xlsx$', filename):
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        filepath = os.path.join("stored_queries", "excel_exports", filename)
+        
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return FileResponse(
+            path=filepath,
+            filename=filename,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading Excel file {filename}: {e}")
+        raise HTTPException(status_code=500, detail="Download failed")
+
 @app.get("/check-tables")
 async def check_tables():
     """Check what tables exist in DuckDB and their structure"""
@@ -434,6 +627,18 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
                     json_filename = f"{base_name}_{timestamp}.json"
             
+            # Get duckdb_table_name from the JSON metadata
+            duckdb_table_name = None
+            if json_filename:
+                json_path = f"stored_queries/{json_filename}"
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path, 'r') as f:
+                            json_data = json.load(f)
+                            duckdb_table_name = json_data.get("duckdb_table_name")
+                    except Exception as e:
+                        print(f"Warning: Could not read JSON metadata for {json_filename}: {e}")
+            
             files_data.append({
                 "name": file.filename,  # Frontend expects 'name' property
                 "size": file.size,
@@ -441,7 +646,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "fields": all_fields,  # Combined fields from all sheets
                 "sheets": file_metadata.get("sheets", {}) if file_metadata else {},
                 "file_index": i,
-                "json_filename": json_filename  # Include JSON filename for ChatAgent
+                "json_filename": json_filename,  # Include JSON filename for ChatAgent
+                "duckdb_table_name": duckdb_table_name  # Include DuckDB table name for AutoGen
             })
         
         return {
@@ -460,6 +666,80 @@ async def upload_files(files: List[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail="File processing failed")
 
 # Phase 2A: File Analysis Endpoints
+
+# Phase 3: AutoGen Agent System Endpoints
+
+@app.post("/autogen-chat")
+async def autogen_chat_endpoint(request: Dict[str, Any]):
+    """
+    AutoGen Agent System - Main conversation endpoint
+    
+    This endpoint processes user messages through the complete AutoGen agent pipeline:
+    ChatAgent -> OrchestrationAgent -> Target Agent (Query/Report/Upload/Memory)
+    
+    Args:
+        request: Dict containing:
+            - user_input: User's natural language message
+            - localStorage_context: Context from frontend localStorage
+            
+    Returns:
+        Dict with agent response, routing info, and results
+    """
+    try:
+        # Import the agent orchestrator
+        from agents.agent_orchestrator import get_agent_orchestrator
+        
+        # Extract request data
+        user_input = request.get("user_input", "")
+        localStorage_context = request.get("localStorage_context", {})
+        
+        if not user_input.strip():
+            raise HTTPException(status_code=400, detail="user_input is required")
+        
+        # Get the agent orchestrator
+        orchestrator = get_agent_orchestrator()
+        
+        # Process the user message through the agent pipeline
+        result = await orchestrator.process_user_message(user_input, localStorage_context)
+        
+        # Return the complete result
+        return {
+            "success": result.get("success", False),
+            "data": result,
+            "message": "AutoGen agent processing completed"
+        }
+        
+    except Exception as e:
+        logger.error(f"AutoGen chat endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"AutoGen processing failed: {str(e)}")
+
+@app.get("/autogen-status")
+async def autogen_status_endpoint():
+    """
+    Get status of all AutoGen agents
+    
+    Returns:
+        Dict with status information for all agents
+    """
+    try:
+        # Import the agent orchestrator
+        from agents.agent_orchestrator import get_agent_orchestrator
+        
+        # Get the agent orchestrator
+        orchestrator = get_agent_orchestrator()
+        
+        # Get agent status
+        status = orchestrator.get_agent_status()
+        
+        return {
+            "success": True,
+            "data": status,
+            "message": "AutoGen agent status retrieved"
+        }
+        
+    except Exception as e:
+        logger.error(f"AutoGen status endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"AutoGen status check failed: {str(e)}")
 
 @app.post("/chat-agent")
 async def chat_agent_conversation(request: Dict[str, Any]):

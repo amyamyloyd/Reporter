@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import MainLayout from './components/layout/MainLayout';
 import FileUploader from './components/FileUploader';
-import AgentChat from './components/AgentChat';
+import AutoGenChat from './components/AutoGenChat';
 
 function App() {
   // State for Phase 2A workflow
@@ -57,10 +57,10 @@ function App() {
     <div className="App">
       <MainLayout
         agentPanel={
-          <AgentChat 
-            files={uploadedFiles}
-            onAnalysisComplete={handleAnalysisComplete}
-          />
+                  <AutoGenChat 
+          files={uploadedFiles} 
+          onAnalysisComplete={handleAnalysisComplete}
+        />
         }
       >
         {/* Left side: Content (40%) - Progress Tracking and File Upload */}

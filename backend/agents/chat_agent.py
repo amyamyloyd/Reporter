@@ -37,6 +37,22 @@ except ImportError as e:
     logging.error(f"Failed to import classification components: {e}")
     raise
 
+# Import Phase 3 advanced classification components
+try:
+    from utils.context_aware_classification import (
+        ContextAwareQuestionSelector, ConfidenceLevel, InteractionType,
+        track_user_interaction
+    )
+    from utils.user_preference_learning import (
+        UserPreferenceLearner, learn_from_user_interaction
+    )
+    from utils.batch_classification import (
+        BatchClassificationProcessor, BatchDocument, process_documents_batch
+    )
+except ImportError as e:
+    logging.error(f"Failed to import Phase 3 classification components: {e}")
+    raise
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -102,7 +118,12 @@ Be conversational but focused on structuring the input properly."""
             self.fuzzy_matcher = create_fuzzy_matcher()
             self.classification_utils = create_classification_utils()
             
-            logger.info(f"ChatAgent '{name}' initialized successfully with classification capabilities")
+            # Initialize Phase 3 advanced classification components
+            self.context_selector = ContextAwareQuestionSelector()
+            self.preference_learner = UserPreferenceLearner()
+            self.batch_processor = BatchClassificationProcessor()
+            
+            logger.info(f"ChatAgent '{name}' initialized successfully with Phase 3 classification capabilities")
         except Exception as e:
             logger.error(f"Failed to initialize ChatAgent: {e}")
             raise
@@ -247,7 +268,7 @@ Be conversational but focused on structuring the input properly."""
     
     def suggest_document_type(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Suggest document type based on fields using fuzzy matching
+        Suggest document type based on fields using fuzzy matching with Phase 3 enhancements
         
         Args:
             context (Dict[str, Any]): Context with fields and document info
@@ -264,16 +285,36 @@ Be conversational but focused on structuring the input properly."""
             
             fields = context['fields']
             doc_id = context.get('doc_id', 'unknown')
+            user_id = context.get('user_id', 'default_user')
             
             # Get suggestions using fuzzy matching
             suggestions = self.classification_utils.suggest_document_type(fields)
             
             if suggestions['success'] and suggestions['suggestions']:
-                # Use natural language question for match found
+                # Use context-aware question selection (Phase 3.1)
                 best_match = suggestions['suggestions'][0]
-                question = get_document_type_match_question(
-                    best_match['document_type'],
-                    {'confidence': best_match['confidence_level']}
+                confidence_level = ConfidenceLevel.HIGH if best_match['confidence_score'] > 0.8 else ConfidenceLevel.MEDIUM
+                
+                # Track interaction for learning (Phase 3.2)
+                track_user_interaction(
+                    user_id=user_id,
+                    interaction_type=InteractionType.DOCUMENT_UPLOAD,
+                    document_type=best_match['document_type'],
+                    confidence_level=confidence_level,
+                    similarity_percentage=best_match['confidence_score'] * 100,
+                    context_data={'fields': fields, 'doc_id': doc_id}
+                )
+                
+                # Get context-aware question
+                question = self.context_selector.get_context_aware_question_with_llm_fallback(
+                    QuestionType.DOCUMENT_TYPE_MATCH_FOUND,
+                    user_id,
+                    doc_id,
+                    {
+                        'doc_type': best_match['document_type'],
+                        'confidence': best_match['confidence_level'],
+                        'similarity_percentage': best_match['confidence_score'] * 100
+                    }
                 )
                 
                 return {
@@ -281,18 +322,41 @@ Be conversational but focused on structuring the input properly."""
                     "message": question,
                     "suggestions": suggestions['suggestions'],
                     "doc_id": doc_id,
-                    "intent": "confirm_document_type"
+                    "intent": "confirm_document_type",
+                    "phase3_features": {
+                        "context_aware": True,
+                        "confidence_level": confidence_level.value,
+                        "user_learning": True
+                    }
                 }
             else:
-                # Use natural language question for no match found
-                question = get_no_match_question()
+                # Use context-aware question for no match found
+                question = self.context_selector.get_context_aware_question_with_llm_fallback(
+                    QuestionType.NO_MATCH_FOUND,
+                    user_id,
+                    doc_id,
+                    {'fields': fields, 'doc_id': doc_id}
+                )
+                
+                # Get name suggestions based on user preferences (Phase 3.2)
+                name_suggestions = self.preference_learner.suggest_document_name(
+                    user_id, 
+                    context.get('filename', 'Document'),
+                    {'fields': fields, 'doc_id': doc_id}
+                )
                 
                 return {
                     "success": True,
                     "message": question,
                     "ai_suggestions": suggestions.get('ai_suggestions', []),
+                    "name_suggestions": name_suggestions,
                     "doc_id": doc_id,
-                    "intent": "name_new_document_type"
+                    "intent": "name_new_document_type",
+                    "phase3_features": {
+                        "context_aware": True,
+                        "user_learning": True,
+                        "name_suggestions": True
+                    }
                 }
                 
         except Exception as e:
@@ -554,6 +618,93 @@ Be conversational but focused on structuring the input properly."""
         else:
             return "unknown"
     
+    def process_batch_classification(self, user_id: str, documents: List[Dict[str, Any]], 
+                                   batch_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Process multiple documents for batch classification (Phase 3.3)
+        
+        Args:
+            user_id (str): User identifier
+            documents (List[Dict[str, Any]]): List of document data
+            batch_metadata (Dict[str, Any]): Additional batch metadata
+            
+        Returns:
+            Dict[str, Any]: Batch classification result
+        """
+        try:
+            # Convert document data to BatchDocument objects
+            batch_documents = []
+            for doc_data in documents:
+                doc = BatchDocument(
+                    doc_id=doc_data['doc_id'],
+                    filename=doc_data['filename'],
+                    fields=doc_data['fields'],
+                    metadata=doc_data.get('metadata', {})
+                )
+                batch_documents.append(doc)
+            
+            # Process batch classification
+            result = self.batch_processor.process_batch_classification(
+                user_id, batch_documents, batch_metadata
+            )
+            
+            # Get confirmation questions
+            questions = self.batch_processor.get_batch_confirmation_questions(result, user_id)
+            
+            return {
+                "success": result.success,
+                "batch_id": result.batch_id,
+                "total_documents": result.total_documents,
+                "groups_created": len(result.groups),
+                "confirmation_questions": questions,
+                "classification_summary": result.classification_summary,
+                "processing_time": result.processing_time,
+                "phase3_features": {
+                    "batch_classification": True,
+                    "context_aware": True,
+                    "user_learning": True
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing batch classification: {e}")
+            return {
+                "success": False,
+                "message": "I encountered an error processing the batch classification. Please try again.",
+                "error": str(e)
+            }
+    
+    def get_user_preferences(self, user_id: str) -> Dict[str, Any]:
+        """
+        Get learned user preferences (Phase 3.2)
+        
+        Args:
+            user_id (str): User identifier
+            
+        Returns:
+            Dict[str, Any]: User preferences and patterns
+        """
+        try:
+            preferences = self.preference_learner.get_user_preferences(user_id)
+            
+            return {
+                "success": True,
+                "user_id": user_id,
+                "preferences": preferences,
+                "phase3_features": {
+                    "user_learning": True,
+                    "preference_analysis": True
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting user preferences: {e}")
+            return {
+                "success": False,
+                "message": "I couldn't retrieve your preferences. Please try again.",
+                "error": str(e)
+            }
+    
     def get_agent_info(self) -> Dict[str, Any]:
         """
         Get information about this agent for debugging/monitoring
@@ -573,13 +724,25 @@ Be conversational but focused on structuring the input properly."""
                 "Document classification handling",
                 "Natural language question generation",
                 "Fuzzy document type matching",
-                "Document type management"
+                "Document type management",
+                "Context-aware question selection (Phase 3.1)",
+                "User preference learning (Phase 3.2)",
+                "Batch classification processing (Phase 3.3)"
             ],
             "llm_config": self.llm_config,
             "classification_components": {
                 "question_generator": "ClassificationQuestionGenerator",
                 "fuzzy_matcher": "FuzzyClassificationMatcher",
-                "classification_utils": "ClassificationUtils"
+                "classification_utils": "ClassificationUtils",
+                "context_selector": "ContextAwareQuestionSelector",
+                "preference_learner": "UserPreferenceLearner",
+                "batch_processor": "BatchClassificationProcessor"
+            },
+            "phase3_features": {
+                "context_aware_questions": True,
+                "user_preference_learning": True,
+                "batch_classification": True,
+                "intelligent_suggestions": True
             }
         }
 

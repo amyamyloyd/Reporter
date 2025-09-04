@@ -479,7 +479,7 @@ async def view_tables():
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify({
-                                doc_id: docId
+                                id: docId
                             })
                         });
                         
@@ -487,7 +487,7 @@ async def view_tables():
                         
                         if (result.success) {
                             // Show success message
-                            alert(`✅ Successfully deleted document metadata "${docId}"\n\nType: ${result.document_type}\nVersion: ${result.latest_version}\nCreated: ${result.created_date}`);
+                            alert(`✅ Successfully deleted document metadata "${result.document_type}"\n\nDescription: ${result.description}\nCreated: ${result.created_date}`);
                             
                             // Reload the page to show updated document list
                             window.location.reload();
@@ -1113,7 +1113,7 @@ async def delete_doc_metadata(request: Dict[str, str]):
         try:
             # Query to check if document exists
             doc_check = conn.execute("""
-                SELECT id, doc_id, report_name, created_date 
+                SELECT id, document_type, description, created_date 
                 FROM doc_registry 
                 WHERE id = ?
             """, (doc_id_int,)).fetchone()
@@ -1138,8 +1138,8 @@ async def delete_doc_metadata(request: Dict[str, str]):
                 "success": True,
                 "message": f"Document metadata '{doc_check[1]}' deleted successfully",
                 "id": doc_id,
-                "doc_id": doc_check[1],
-                "report_name": doc_check[2],
+                "document_type": doc_check[1],
+                "description": doc_check[2],
                 "created_date": doc_check[3]
             }
             

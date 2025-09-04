@@ -109,25 +109,414 @@ async def view_tables():
             <title>AI Excel Reporting - Database Tables</title>
             <style>
                 body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-                .container { max-width: 1200px; margin: 0 auto; }
-                h1 { color: #333; text-align: center; }
-                h2 { color: #666; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
-                table { width: 100%; border-collapse: collapse; margin: 20px 0; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+                .container { max-width: 1400px; margin: 0 auto; }
+                h1 { color: #333; text-align: center; margin-bottom: 30px; }
+                h2 { color: #666; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 0; }
+                
+                /* Grid Layout */
+                .grid-container { 
+                    display: grid; 
+                    grid-template-columns: 1fr 1fr; 
+                    gap: 20px; 
+                    margin-bottom: 30px; 
+                }
+                .grid-item { 
+                    background: white; 
+                    border-radius: 8px; 
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.1); 
+                    padding: 20px; 
+                }
+                
+                /* Table Styles */
+                table { width: 100%; border-collapse: collapse; margin: 0; }
+                th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; font-size: 14px; }
                 th { background-color: #f8f9fa; font-weight: bold; color: #333; }
                 tr:hover { background-color: #f5f5f5; }
-                .count { background-color: #e3f2fd; padding: 5px 10px; border-radius: 3px; font-weight: bold; }
-                .refresh { text-align: center; margin: 20px 0; }
-                .refresh a { background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
-                .refresh a:hover { background-color: #0056b3; }
+                .count { background-color: #e3f2fd; padding: 3px 8px; border-radius: 3px; font-weight: bold; font-size: 12px; }
+                
+                /* Table name column styling - limit width and truncate long names */
+                .table-name-cell { 
+                    max-width: 200px; 
+                    overflow: hidden; 
+                    text-overflow: ellipsis; 
+                    white-space: nowrap;
+                }
+                .table-name-cell code {
+                    font-size: 12px;
+                    background-color: #f8f9fa;
+                    padding: 2px 4px;
+                    border-radius: 3px;
+                    max-width: 180px;
+                    display: inline-block;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                
+                /* Button Row */
+                .button-row { 
+                    display: flex; 
+                    justify-content: center; 
+                    gap: 20px; 
+                    margin: 30px 0; 
+                }
+                .action-button { 
+                    background-color: #007bff; 
+                    color: white; 
+                    padding: 15px 30px; 
+                    text-decoration: none; 
+                    border-radius: 8px; 
+                    font-weight: bold; 
+                    font-size: 16px;
+                    transition: background-color 0.3s;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .action-button:hover { 
+                    background-color: #0056b3; 
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                }
+                
+                /* Delete Button Styles */
+                .delete-btn {
+                    background-color: #dc3545;
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    transition: background-color 0.2s;
+                    margin: 2px;
+                    white-space: nowrap;
+                }
+                .delete-btn:hover {
+                    background-color: #c82333;
+                }
+                
+                /* Actions column styling */
+                .actions-cell {
+                    padding: 8px 12px;
+                    min-width: 100px;
+                    text-align: center;
+                }
+                
+                /* Query Delete Button Styles - Different from table delete */
+                .delete-query-btn {
+                    background-color: #6c757d;
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    transition: background-color 0.2s;
+                    margin: 2px;
+                    white-space: nowrap;
+                }
+                .delete-query-btn:hover {
+                    background-color: #5a6268;
+                }
+                
+                /* Report Delete Button Styles - Different from table and query delete */
+                .delete-report-btn {
+                    background-color: #fd7e14;
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    transition: background-color 0.2s;
+                    margin: 2px;
+                    white-space: nowrap;
+                }
+                .delete-report-btn:hover {
+                    background-color: #e8650e;
+                }
+                
+                /* Document Delete Button Styles - Different from all other delete types */
+                .delete-doc-btn {
+                    background-color: #6f42c1;
+                    color: white;
+                    border: none;
+                    padding: 6px 12px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    transition: background-color 0.2s;
+                    margin: 2px;
+                    white-space: nowrap;
+                }
+                .delete-doc-btn:hover {
+                    background-color: #5a32a3;
+                }
+                
+                /* Responsive */
+                @media (max-width: 768px) {
+                    .grid-container { grid-template-columns: 1fr; }
+                    .button-row { flex-direction: column; align-items: center; }
+                }
             </style>
+            <script>
+                /**
+                 * Delete a DuckDB table with confirmation
+                 * 
+                 * @param {string} tableName - The name of the table to delete
+                 * @param {string} displayName - Human-readable name for confirmation dialog
+                 */
+                async function deleteTable(tableName, displayName) {
+                    // Show confirmation dialog
+                    const confirmed = confirm(
+                        `Are you sure you want to delete the table "${displayName}"?\n\n` +
+                        `Table: ${tableName}\n\n` +
+                        `This action cannot be undone and will permanently remove all data.`
+                    );
+                    
+                    if (!confirmed) {
+                        return; // User cancelled
+                    }
+                    
+                    try {
+                        // Show loading state on button
+                        const button = event.target;
+                        const originalText = button.innerHTML;
+                        button.innerHTML = '⏳ Deleting...';
+                        button.disabled = true;
+                        
+                        // Make API call to delete table
+                        const response = await fetch('/delete-table', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                table_name: tableName
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Show success message
+                            alert(`✅ Successfully deleted table "${displayName}"\n\nRecords deleted: ${result.records_deleted}`);
+                            
+                            // Reload the page to show updated table list
+                            window.location.reload();
+                        } else {
+                            // Show error message
+                            alert(`❌ Failed to delete table: ${result.message}`);
+                            
+                            // Reset button state
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }
+                        
+                    } catch (error) {
+                        // Handle network or other errors
+                        alert(`❌ Error deleting table: ${error.message}`);
+                        
+                        // Reset button state
+                        const button = event.target;
+                        button.innerHTML = '🗑️ Delete';
+                        button.disabled = false;
+                    }
+                }
+                
+                /**
+                 * Delete a saved query with confirmation
+                 * 
+                 * @param {string} queryName - The name of the query to delete
+                 * @param {HTMLElement} button - The button element that was clicked
+                 */
+                async function deleteQuery(queryName, button) {
+                    // Show confirmation dialog
+                    const confirmed = confirm(
+                        `Are you sure you want to delete the saved query "${queryName}"?\n\n` +
+                        `This action cannot be undone and will permanently remove the query.`
+                    );
+                    
+                    if (!confirmed) {
+                        return; // User cancelled
+                    }
+                    
+                    try {
+                        // Show loading state on button
+                        const originalText = button.innerHTML;
+                        button.innerHTML = '⏳ Deleting...';
+                        button.disabled = true;
+                        
+                        // Make API call to delete query
+                        const response = await fetch('/delete-query', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                query_name: queryName
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Show success message
+                            alert(`✅ Successfully deleted query "${queryName}"\n\nCreated: ${result.created_date}`);
+                            
+                            // Reload the page to show updated query list
+                            window.location.reload();
+                        } else {
+                            // Show error message
+                            alert(`❌ Failed to delete query: ${result.message}`);
+                            
+                            // Reset button state
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }
+                        
+                    } catch (error) {
+                        // Handle network or other errors
+                        alert(`❌ Error deleting query: ${error.message}`);
+                        
+                        // Reset button state
+                        button.innerHTML = '🗂️ Delete';
+                        button.disabled = false;
+                    }
+                }
+                
+                /**
+                 * Delete a saved report with confirmation
+                 * 
+                 * @param {string} reportId - The ID of the report to delete
+                 * @param {string} reportName - The name of the report to display in confirmation
+                 * @param {HTMLElement} button - The button element that was clicked
+                 */
+                async function deleteReport(reportId, reportName, button) {
+                    // Show confirmation dialog with report name
+                    const confirmed = confirm(
+                        `Are you sure you want to delete the saved report "${reportName}"?\n\n` +
+                        `Report ID: ${reportId}\n\n` +
+                        `This action cannot be undone and will permanently remove the report definition.`
+                    );
+                    
+                    if (!confirmed) {
+                        return; // User cancelled
+                    }
+                    
+                    try {
+                        // Show loading state on button
+                        const originalText = button.innerHTML;
+                        button.innerHTML = '⏳ Deleting...';
+                        button.disabled = true;
+                        
+                        // Make API call to delete report
+                        const response = await fetch('/delete-report', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                report_id: reportId
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Show success message
+                            alert(`✅ Successfully deleted report "${reportName}"\n\nCreated: ${result.created_date}`);
+                            
+                            // Reload the page to show updated report list
+                            window.location.reload();
+                        } else {
+                            // Show error message
+                            alert(`❌ Failed to delete report: ${result.message}`);
+                            
+                            // Reset button state
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }
+                        
+                    } catch (error) {
+                        // Handle network or other errors
+                        alert(`❌ Error deleting report: ${error.message}`);
+                        
+                        // Reset button state
+                        button.innerHTML = '📊 Delete';
+                        button.disabled = false;
+                    }
+                }
+                
+                /**
+                 * Delete a document registry entry with confirmation
+                 * 
+                 * @param {string} docId - The ID of the document to delete
+                 * @param {string} docType - The document type to display in confirmation
+                 * @param {HTMLElement} button - The button element that was clicked
+                 */
+                async function deleteDocMetadata(docId, docType, button) {
+                    // Show confirmation dialog with document info
+                    const confirmed = confirm(
+                        `Are you sure you want to delete the document metadata "${docId}"?\n\n` +
+                        `Document Type: ${docType}\n\n` +
+                        `This action cannot be undone and will permanently remove the document metadata.`
+                    );
+                    
+                    if (!confirmed) {
+                        return; // User cancelled
+                    }
+                    
+                    try {
+                        // Show loading state on button
+                        const originalText = button.innerHTML;
+                        button.innerHTML = '⏳ Deleting...';
+                        button.disabled = true;
+                        
+                        // Make API call to delete document metadata
+                        const response = await fetch('/delete-doc-metadata', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                doc_id: docId
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            // Show success message
+                            alert(`✅ Successfully deleted document metadata "${docId}"\n\nType: ${result.document_type}\nVersion: ${result.latest_version}\nCreated: ${result.created_date}`);
+                            
+                            // Reload the page to show updated document list
+                            window.location.reload();
+                        } else {
+                            // Show error message
+                            alert(`❌ Failed to delete document metadata: ${result.message}`);
+                            
+                            // Reset button state
+                            button.innerHTML = originalText;
+                            button.disabled = false;
+                        }
+                        
+                    } catch (error) {
+                        // Handle network or other errors
+                        alert(`❌ Error deleting document metadata: ${error.message}`);
+                        
+                        // Reset button state
+                        button.innerHTML = '📄 Delete';
+                        button.disabled = false;
+                    }
+                }
+            </script>
         </head>
         <body>
             <div class="container">
-                <h1>🗄️ AI Excel Reporting - Database Tables</h1>
-                <div class="refresh">
-                    <a href="/tables">🔄 Refresh</a>
-                </div>
+                <h1>🗄️ AI Excel Reporting - Database Overview</h1>
+                
+                <!-- Top Row: Document Registry and Tables -->
+                <div class="grid-container">
         """
         
         # Get doc_registry data
@@ -136,99 +525,286 @@ async def view_tables():
             doc_registry_columns = [desc[0] for desc in conn.execute("PRAGMA table_info(doc_registry)").fetchall()]
             
             html_content += f"""
-                <h2>📋 Document Registry <span class="count">{len(doc_registry_result)} records</span></h2>
-                <table>
-                    <thead>
-                        <tr>
+                    <!-- Left Grid Item: Document Registry -->
+                    <div class="grid-item">
+                        <h2>📋 Document Registry <span class="count">{len(doc_registry_result)} records</span></h2>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
             """
             for col in doc_registry_columns:
                 html_content += f"<th>{col}</th>"
             html_content += """
-                        </tr>
-                    </thead>
-                    <tbody>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
             """
             
             for row in doc_registry_result:
+                # Get id and report_name from the row (id=0, report_name=2 based on schema)
+                doc_id = row[0] if row else "Unknown"
+                report_name = row[2] if row and len(row) > 2 else "Unknown"
+                
                 html_content += "<tr>"
                 for value in row:
                     html_content += f"<td>{value if value is not None else ''}</td>"
+                
+                # Add delete button for this document
+                html_content += f"""
+                    <td class="actions-cell">
+                        <button onclick="deleteDocMetadata('{doc_id}', '{report_name}', this)" 
+                                class="delete-doc-btn">
+                            📄 Delete
+                        </button>
+                    </td>
+                """
                 html_content += "</tr>"
             
             html_content += """
-                    </tbody>
-                </table>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
             """
         except Exception as e:
-            html_content += f"<p>❌ Error loading doc_registry: {e}</p>"
+            html_content += f"""
+                    <div class="grid-item">
+                        <h2>📋 Document Registry</h2>
+                        <p>❌ Error loading doc_registry: {e}</p>
+                    </div>
+            """
         
-        # Get saved_queries data
+        # Get data tables (uploaded Excel files)
+        try:
+            # Get all tables that are not system tables
+            all_tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
+            data_tables = []
+            
+            for table_row in all_tables:
+                table_name = table_row[0]
+                # Filter out system tables
+                if not table_name.startswith('saved_') and table_name != 'doc_registry':
+                    # Extract timestamp from table name (format: filename_YYYYMMDD_HHMMSS)
+                    import re
+                    timestamp_match = re.search(r'_(\d{8}_\d{6})$', table_name)
+                    if timestamp_match:
+                        timestamp_str = timestamp_match.group(1)
+                        # Convert YYYYMMDD_HHMMSS to human readable format
+                        try:
+                            from datetime import datetime
+                            dt = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                            human_date = dt.strftime('%B %d, %Y at %I:%M %p')
+                            original_filename = table_name.replace(f'_{timestamp_str}', '')
+                        except:
+                            human_date = "Unknown date"
+                            original_filename = table_name
+                    else:
+                        human_date = "Unknown date"
+                        original_filename = table_name
+                    
+                    # Get record count for this table
+                    try:
+                        count_result = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                        record_count = count_result[0] if count_result else 0
+                    except:
+                        record_count = 0
+                    
+                    data_tables.append({
+                        'table_name': table_name,
+                        'original_filename': original_filename,
+                        'upload_date': human_date,
+                        'record_count': record_count
+                    })
+            
+            # Sort by upload date (newest first)
+            data_tables.sort(key=lambda x: x['table_name'], reverse=True)
+            
+            html_content += f"""
+                    <!-- Right Grid Item: Data Tables -->
+                    <div class="grid-item">
+                        <h2>📁 Uploaded Data Tables <span class="count">{len(data_tables)} tables</span></h2>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Original Filename</th>
+                                        <th>Table Name</th>
+                                        <th>Upload Date</th>
+                                        <th>Records</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+            """
+            
+            for table_info in data_tables:
+                # Truncate table name to 25 characters for display
+                display_table_name = table_info['table_name']
+                if len(display_table_name) > 25:
+                    display_table_name = display_table_name[:22] + "..."
+                
+                html_content += f"""
+                    <tr>
+                        <td><strong>{table_info['original_filename']}</strong></td>
+                        <td class="table-name-cell" title="{table_info['table_name']}">
+                            <code>{display_table_name}</code>
+                        </td>
+                        <td>{table_info['upload_date']}</td>
+                        <td><span class="count">{table_info['record_count']:,}</span></td>
+                        <td class="actions-cell">
+                            <button onclick="deleteTable('{table_info['table_name']}', '{table_info['original_filename']}')" 
+                                    class="delete-btn">
+                                🗑️ Delete
+                            </button>
+                        </td>
+                    </tr>
+                """
+            
+            html_content += """
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+            """
+        except Exception as e:
+            html_content += f"""
+                    <div class="grid-item">
+                        <h2>📁 Uploaded Data Tables</h2>
+                        <p>❌ Error loading data tables: {e}</p>
+                    </div>
+            """
+        
+        # Get saved_queries data for bottom left grid
         try:
             saved_queries_result = conn.execute("SELECT * FROM saved_queries ORDER BY created_date DESC").fetchall()
             saved_queries_columns = [desc[0] for desc in conn.execute("PRAGMA table_info(saved_queries)").fetchall()]
             
+            # Only show first 5 columns
+            display_columns = saved_queries_columns[:5]
+            total_queries = len(saved_queries_result)
+            
             html_content += f"""
-                <h2>🔍 Saved Queries <span class="count">{len(saved_queries_result)} records</span></h2>
-                <table>
-                    <thead>
-                        <tr>
+                    <!-- Bottom Left Grid Item: Saved Queries -->
+                    <div class="grid-item">
+                        <h2>🔍 Saved Queries <span class="count">{total_queries} records</span></h2>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
             """
-            for col in saved_queries_columns:
+            for col in display_columns:
                 html_content += f"<th>{col}</th>"
             html_content += """
-                        </tr>
-                    </thead>
-                    <tbody>
+                                        <th>Actions</th>
+nn                                    </tr>
+                                </thead>
+                                <tbody>
             """
             
             for row in saved_queries_result:
+                # Get query_name from the row (column index 2 based on schema: id, doc_id, query_name, ...)
+                query_name = row[2] if row and len(row) > 2 else "Unknown"
+                
                 html_content += "<tr>"
-                for i, value in enumerate(row):
+                for i, value in enumerate(row[:5]):  # Only first 5 columns
                     # Truncate long SQL queries for display
                     if saved_queries_columns[i] == 'sql' and value and len(str(value)) > 100:
                         html_content += f"<td title='{value}'>{str(value)[:100]}...</td>"
                     else:
                         html_content += f"<td>{value if value is not None else ''}</td>"
+                
+                # Add delete button for this query
+                html_content += f"""
+                    <td class="actions-cell">
+                        <button onclick="deleteQuery('{query_name}', this)" 
+                                class="delete-query-btn">
+                            🗂️ Delete
+                        </button>
+                    </td>
+                """
                 html_content += "</tr>"
             
             html_content += """
-                    </tbody>
-                </table>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
             """
         except Exception as e:
-            html_content += f"<p>❌ Error loading saved_queries: {e}</p>"
+            html_content += f"""
+                    <div class="grid-item">
+                        <h2>🔍 Saved Queries</h2>
+                        <p>❌ Error loading saved_queries: {e}</p>
+                    </div>
+            """
         
-        # Get saved_reports data
+        # Get saved_reports data for bottom right grid
         try:
             saved_reports_result = conn.execute("SELECT * FROM saved_reports ORDER BY created_date DESC").fetchall()
             saved_reports_columns = [desc[0] for desc in conn.execute("PRAGMA table_info(saved_reports)").fetchall()]
             
+            # Only show first 5 columns
+            display_columns = saved_reports_columns[:5]
+            total_reports = len(saved_reports_result)
+            
             html_content += f"""
-                <h2>📊 Saved Reports <span class="count">{len(saved_reports_result)} records</span></h2>
-                <table>
-                    <thead>
-                        <tr>
+                    <!-- Bottom Right Grid Item: Saved Reports -->
+                    <div class="grid-item">
+                        <h2>📊 Saved Reports <span class="count">{total_reports} records</span></h2>
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <table>
+                                <thead>
+                                    <tr>
             """
-            for col in saved_reports_columns:
+            for col in display_columns:
                 html_content += f"<th>{col}</th>"
             html_content += """
-                        </tr>
-                    </thead>
-                    <tbody>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
             """
             
             for row in saved_reports_result:
+                # Get id and report_name from the row (id=0, report_name=2 based on schema)
+                report_id = row[0] if row else "Unknown"
+                report_name = row[2] if row and len(row) > 2 else "Unknown"
+                
                 html_content += "<tr>"
-                for value in row:
+                for i, value in enumerate(row[:5]):  # Only first 5 columns
                     html_content += f"<td>{value if value is not None else ''}</td>"
+                
+                # Add delete button for this report - pass both ID and name
+                html_content += f"""
+                    <td class="actions-cell">
+                        <button onclick="deleteReport('{report_id}', '{report_name}', this)" 
+                                class="delete-report-btn">
+                            📊 Delete
+                        </button>
+                    </td>
+                """
                 html_content += "</tr>"
             
             html_content += """
-                    </tbody>
-                </table>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
             """
         except Exception as e:
-            html_content += f"<p>❌ Error loading saved_reports: {e}</p>"
+            html_content += f"""
+                    <div class="grid-item">
+                        <h2>📊 Saved Reports</h2>
+                        <p>❌ Error loading saved_reports: {e}</p>
+                    </div>
+            """
+        
+        # Close the grid container
+        html_content += """
+                </div>
+        """
         
         # Close HTML
         html_content += """
@@ -256,6 +832,329 @@ async def view_tables():
         """
         from fastapi.responses import HTMLResponse
         return HTMLResponse(content=error_html, status_code=500)
+
+@app.post("/delete-table")
+async def delete_table(request: Dict[str, str]):
+    """
+    Delete a DuckDB data table (admin-only function for POC)
+    
+    This endpoint removes uploaded Excel data tables from the DuckDB database.
+    Used for cleaning up test data and managing storage.
+    
+    Args:
+        request: JSON payload containing 'table_name' field
+        
+    Returns:
+        JSON response with success status and details
+        
+    Example:
+        POST /delete-table
+        {
+            "table_name": "hospital_ledger_fy2024_001"
+        }
+    """
+    try:
+        # Extract table name from request
+        table_name = request.get("table_name")
+        if not table_name:
+            raise HTTPException(status_code=400, detail="table_name is required")
+        
+        # Validate table name format to prevent SQL injection
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+            raise HTTPException(status_code=400, detail="Invalid table name format")
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if table exists before attempting to delete
+        try:
+            # Query to check if table exists
+            table_check = conn.execute(f"""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'main' AND table_name = '{table_name}'
+            """).fetchone()
+            
+            if not table_check:
+                conn.close()
+                return {
+                    "success": False,
+                    "message": f"Table '{table_name}' not found",
+                    "table_name": table_name
+                }
+            
+            # Get record count before deletion for logging
+            count_result = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+            record_count = count_result[0] if count_result else 0
+            
+            # Drop the table
+            conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+            
+            # Log the deletion for audit purposes
+            logger.info(f"Successfully deleted table '{table_name}' with {record_count} records")
+            
+            conn.close()
+            
+            return {
+                "success": True,
+                "message": f"Table '{table_name}' deleted successfully",
+                "table_name": table_name,
+                "records_deleted": record_count
+            }
+            
+        except Exception as db_error:
+            conn.close()
+            logger.error(f"Database error deleting table '{table_name}': {str(db_error)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Unexpected error in delete_table: {str(e)}")
+        raise HTTPException(status_code=500, detail="Table deletion failed")
+
+@app.post("/delete-query")
+async def delete_query(request: Dict[str, str]):
+    """
+    Delete a saved query from the database (admin-only function for POC)
+    
+    This endpoint removes saved SQL queries from the saved_queries table.
+    Used for cleaning up test queries and managing storage.
+    
+    Args:
+        request: JSON payload containing 'query_name' field
+        
+    Returns:
+        JSON response with success status and details
+        
+    Example:
+        POST /delete-query
+        {
+            "query_name": "Quarterly Vendor Spend"
+        }
+    """
+    try:
+        # Extract query name from request
+        query_name = request.get("query_name")
+        if not query_name:
+            raise HTTPException(status_code=400, detail="query_name is required")
+        
+        # Validate query name format to prevent SQL injection
+        if not re.match(r'^[a-zA-Z0-9_\s-]+$', query_name):
+            raise HTTPException(status_code=400, detail="Invalid query name format")
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if query exists before attempting to delete
+        try:
+            # Query to check if saved query exists
+            query_check = conn.execute("""
+                SELECT query_name, created_date 
+                FROM saved_queries 
+                WHERE query_name = ?
+            """, (query_name,)).fetchone()
+            
+            if not query_check:
+                conn.close()
+                return {
+                    "success": False,
+                    "message": f"Query '{query_name}' not found",
+                    "query_name": query_name
+                }
+            
+            # Delete the saved query
+            conn.execute("DELETE FROM saved_queries WHERE query_name = ?", (query_name,))
+            
+            # Log the deletion for audit purposes
+            logger.info(f"Successfully deleted saved query '{query_name}' (created: {query_check[1]})")
+            
+            conn.close()
+            
+            return {
+                "success": True,
+                "message": f"Query '{query_name}' deleted successfully",
+                "query_name": query_name,
+                "created_date": query_check[1]
+            }
+            
+        except Exception as db_error:
+            conn.close()
+            logger.error(f"Database error deleting query '{query_name}': {str(db_error)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Unexpected error in delete_query: {str(e)}")
+        raise HTTPException(status_code=500, detail="Query deletion failed")
+
+@app.post("/delete-report")
+async def delete_report(request: Dict[str, str]):
+    """
+    Delete a saved report from the database (admin-only function for POC)
+    
+    This endpoint removes saved report definitions from the saved_reports table.
+    Used for cleaning up test reports and managing storage.
+    
+    Args:
+        request: JSON payload containing 'report_id' field
+        
+    Returns:
+        JSON response with success status and details
+        
+    Example:
+        POST /delete-report
+        {
+            "report_id": "11"
+        }
+    """
+    try:
+        # Extract report ID from request
+        report_id = request.get("report_id")
+        if not report_id:
+            raise HTTPException(status_code=400, detail="report_id is required")
+        
+        # Validate report ID format (should be integer)
+        try:
+            report_id_int = int(report_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid report ID format - must be integer")
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if report exists before attempting to delete
+        try:
+            # Query to check if saved report exists
+            report_check = conn.execute("""
+                SELECT id, report_name, created_date 
+                FROM saved_reports 
+                WHERE id = ?
+            """, (report_id_int,)).fetchone()
+            
+            if not report_check:
+                conn.close()
+                return {
+                    "success": False,
+                    "message": f"Report with ID '{report_id}' not found",
+                    "report_id": report_id
+                }
+            
+            # Delete the saved report
+            conn.execute("DELETE FROM saved_reports WHERE id = ?", (report_id_int,))
+            
+            # Log the deletion for audit purposes
+            logger.info(f"Successfully deleted saved report ID {report_id} ('{report_check[1]}') (created: {report_check[2]})")
+            
+            conn.close()
+            
+            return {
+                "success": True,
+                "message": f"Report '{report_check[1]}' deleted successfully",
+                "report_id": report_id,
+                "report_name": report_check[1],
+                "created_date": report_check[2]
+            }
+            
+        except Exception as db_error:
+            conn.close()
+            logger.error(f"Database error deleting report ID '{report_id}': {str(db_error)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Unexpected error in delete_report: {str(e)}")
+        raise HTTPException(status_code=500, detail="Report deletion failed")
+
+@app.post("/delete-doc-metadata")
+async def delete_doc_metadata(request: Dict[str, str]):
+    """
+    Delete a document registry entry from the database (admin-only function for POC)
+    
+    This endpoint removes document metadata entries from the doc_registry table.
+    Used for cleaning up test document metadata and managing storage.
+    
+    Args:
+        request: JSON payload containing 'id' field
+        
+    Returns:
+        JSON response with success status and details
+        
+    Example:
+        POST /delete-doc-metadata
+        {
+            "id": "4"
+        }
+    """
+    try:
+        # Extract id from request
+        doc_id = request.get("id")
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="id is required")
+        
+        # Validate id format (should be integer)
+        try:
+            doc_id_int = int(doc_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid id format - must be integer")
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if document exists before attempting to delete
+        try:
+            # Query to check if document exists
+            doc_check = conn.execute("""
+                SELECT id, doc_id, report_name, created_date 
+                FROM doc_registry 
+                WHERE id = ?
+            """, (doc_id_int,)).fetchone()
+            
+            if not doc_check:
+                conn.close()
+                return {
+                    "success": False,
+                    "message": f"Document with ID '{doc_id}' not found",
+                    "id": doc_id
+                }
+            
+            # Delete the document metadata
+            conn.execute("DELETE FROM doc_registry WHERE id = ?", (doc_id_int,))
+            
+            # Log the deletion for audit purposes
+            logger.info(f"Successfully deleted document metadata ID {doc_id} ('{doc_check[1]}' - {doc_check[2]}, created: {doc_check[3]})")
+            
+            conn.close()
+            
+            return {
+                "success": True,
+                "message": f"Document metadata '{doc_check[1]}' deleted successfully",
+                "id": doc_id,
+                "doc_id": doc_check[1],
+                "report_name": doc_check[2],
+                "created_date": doc_check[3]
+            }
+            
+        except Exception as db_error:
+            conn.close()
+            logger.error(f"Database error deleting document metadata '{doc_id}': {str(db_error)}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_error)}")
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(f"Unexpected error in delete_doc_metadata: {str(e)}")
+        raise HTTPException(status_code=500, detail="Document metadata deletion failed")
 
 @app.get("/download-excel/{filename}")
 async def download_excel(filename: str):

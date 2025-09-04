@@ -23,6 +23,10 @@ from duckdb_manager import create_persistent_database
 # Import Phase 2A modules
 from agents.file_analyzer import analyze_single_file
 
+# Import Phase 2 classification modules
+from agents.chat_agent import create_chat_agent
+from utils.fuzzy_classification import create_fuzzy_matcher
+
 # Import new utility modules for /query endpoint
 from utils.json_store import load_metadata, append_query_to_metadata, append_report_to_metadata
 from utils.duckdb_manager import save_query, save_report, ensure_all_tables_exist
@@ -404,18 +408,18 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 all_fields = list(dict.fromkeys(all_fields))
                 normalized_fields = list(dict.fromkeys(normalized_fields))
             
-            # STEP 3: Check if document type already exists by comparing fields
+            # STEP 3: Enhanced document type detection with conversational classification
             document_type = "New"
             document_type_code = "new"
             is_new_document = True
             version = "1.0"
+            classification_response = None
             
             try:
-                # Check if doc_registry table exists and query for matching document types
-                # Use a simple try/catch approach instead of information_schema
-                fields_string = '|'.join(sorted(all_fields))  # Create comparable fields string
+                # Create fields string for comparison
+                fields_string = '|'.join(sorted(all_fields))
                 
-                # Query for exact field matches
+                # First try exact field matches
                 match_result = db_conn.execute("""
                     SELECT document_type, document_type_code 
                     FROM doc_registry 
@@ -428,14 +432,54 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     document_type = match[0]
                     document_type_code = match[1]
                     is_new_document = False
-                    print(f"✅ Document type match found: {document_type} ({document_type_code})")
+                    print(f"✅ Exact document type match found: {document_type} ({document_type_code})")
                     print(f"✅ Fields matched: {', '.join(all_fields)}")
                 else:
-                    print(f"📝 No existing document type found - marking as New")
-                    print(f"📝 New fields: {', '.join(all_fields)}")
+                    # Try fuzzy matching for similar document types
+                    print(f"📝 No exact match found, trying fuzzy matching...")
+                    fuzzy_matcher = create_fuzzy_matcher()
+                    similar_matches = fuzzy_matcher.find_similar_document_types(all_fields, db_conn, limit=1)
+                    
+                    if similar_matches and similar_matches[0].similarity_score >= 0.9:
+                        # High confidence match found
+                        best_match = similar_matches[0]
+                        document_type = best_match.document_type
+                        document_type_code = best_match.document_type_code
+                        is_new_document = False
+                        print(f"✅ Fuzzy match found: {document_type} ({document_type_code}) - {best_match.similarity_score:.2f} similarity")
+                        print(f"✅ Matching fields: {', '.join(best_match.matching_fields)}")
+                    else:
+                        # No good match found - prepare for conversational classification
+                        print(f"📝 No similar document type found - will use conversational classification")
+                        print(f"📝 New fields: {', '.join(all_fields)}")
+                        
+                        # Create ChatAgent for conversational classification
+                        chat_agent = create_chat_agent()
+                        
+                        # Prepare context for classification
+                        classification_context = {
+                            "doc_id": json_filename.replace('.json', ''),  # Use JSON filename as doc_id
+                            "fields": all_fields,
+                            "metadata": {
+                                "filename": excel_filename,
+                                "file_size": len(content),
+                                "record_count": sum(sheet.get("row_count", 0) for sheet in file_metadata.get("sheets", {}).values())
+                            }
+                        }
+                        
+                        # Get classification suggestion
+                        classification_response = chat_agent.suggest_document_type(classification_context)
+                        
+                        if classification_response['success']:
+                            print(f"🤖 Classification suggestion: {classification_response['message']}")
+                            # Store classification response for frontend
+                            classification_response['doc_id'] = classification_context['doc_id']
+                            classification_response['fields'] = all_fields
+                        else:
+                            print(f"⚠️ Classification suggestion failed: {classification_response.get('message', 'Unknown error')}")
                     
             except Exception as e:
-                print(f"⚠️ Error checking document registry: {e}")
+                print(f"⚠️ Error in document type detection: {e}")
                 print(f"📝 Falling back to New document type")
                 document_type = "New"
                 document_type_code = "new"
@@ -464,7 +508,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 print(f"❌ Version management error: {e}")
                 version = "1.0"  # Fallback
             
-            # Create JSON structure
+            # Create JSON structure with enhanced classification support
             json_data = {
                 "filename": excel_filename,  # Reference the saved Excel file
                 "sheets": file_metadata.get("sheets", {}),
@@ -478,7 +522,11 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "document_type_code": document_type_code,  # Use determined document type code
                 "version": version,  # Add version field from version management
                 "conversation_status": "completed" if document_type != "New" else "pending",
-                "ready_for_sql_agent": True if document_type != "New" else False
+                "ready_for_sql_agent": True if document_type != "New" else False,
+                # Enhanced classification support
+                "classification_required": classification_response is not None,
+                "classification_response": classification_response,
+                "is_new_document": is_new_document
             }
             
             # Save JSON file
@@ -639,6 +687,24 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     except Exception as e:
                         print(f"Warning: Could not read JSON metadata for {json_filename}: {e}")
             
+            # Get classification data from JSON metadata
+            classification_data = None
+            if json_filename:
+                json_path = f"stored_queries/{json_filename}"
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path, 'r') as f:
+                            json_data = json.load(f)
+                            classification_data = {
+                                "classification_required": json_data.get("classification_required", False),
+                                "classification_response": json_data.get("classification_response"),
+                                "is_new_document": json_data.get("is_new_document", True),
+                                "document_type": json_data.get("document_type", "New"),
+                                "document_type_code": json_data.get("document_type_code", "new")
+                            }
+                    except Exception as e:
+                        print(f"Warning: Could not read classification data for {json_filename}: {e}")
+            
             files_data.append({
                 "name": file.filename,  # Frontend expects 'name' property
                 "size": file.size,
@@ -647,7 +713,9 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "sheets": file_metadata.get("sheets", {}) if file_metadata else {},
                 "file_index": i,
                 "json_filename": json_filename,  # Include JSON filename for ChatAgent
-                "duckdb_table_name": duckdb_table_name  # Include DuckDB table name for AutoGen
+                "duckdb_table_name": duckdb_table_name,  # Include DuckDB table name for AutoGen
+                # Enhanced classification support for frontend
+                "classification": classification_data
             })
         
         return {
@@ -666,6 +734,80 @@ async def upload_files(files: List[UploadFile] = File(...)):
         raise HTTPException(status_code=500, detail="File processing failed")
 
 # Phase 2A: File Analysis Endpoints
+
+# Phase 2: Classification Endpoints
+
+@app.post("/classify-document")
+async def classify_document_endpoint(request: Dict[str, Any]):
+    """
+    Document classification endpoint for conversational classification
+    
+    This endpoint handles classification conversations through the ChatAgent
+    for documents that need user input to determine their type.
+    
+    Args:
+        request: Dict containing:
+            - user_input: User's classification response
+            - doc_id: Document identifier
+            - context: Additional context information
+            
+    Returns:
+        Dict with classification response and next steps
+    """
+    try:
+        # Extract request data
+        user_input = request.get("user_input", "")
+        doc_id = request.get("doc_id", "")
+        context = request.get("context", {})
+        
+        if not user_input or not doc_id:
+            raise HTTPException(status_code=400, detail="user_input and doc_id are required")
+        
+        # Create ChatAgent for classification
+        chat_agent = create_chat_agent()
+        
+        # Handle classification request
+        classification_response = chat_agent.handle_classification_request(user_input, context)
+        
+        # If classification was successful, update the document metadata
+        if classification_response.get("success") and "document_type" in classification_response:
+            try:
+                # Update JSON metadata
+                json_path = f"stored_queries/{doc_id}.json"
+                if os.path.exists(json_path):
+                    with open(json_path, 'r') as f:
+                        json_data = json.load(f)
+                    
+                    # Update classification data
+                    json_data["document_type"] = classification_response["document_type"]
+                    json_data["document_type_code"] = classification_response.get("document_type_code", "new")
+                    json_data["classification_required"] = False
+                    json_data["conversation_status"] = "completed"
+                    json_data["ready_for_sql_agent"] = True
+                    json_data["last_updated"] = datetime.now().isoformat()
+                    
+                    # Save updated metadata
+                    with open(json_path, 'w') as f:
+                        json.dump(json_data, f, indent=2)
+                    
+                    print(f"✅ Updated document classification: {doc_id} -> {classification_response['document_type']}")
+                
+            except Exception as e:
+                print(f"⚠️ Error updating document metadata: {e}")
+                classification_response["metadata_update_error"] = str(e)
+        
+        return {
+            "success": True,
+            "classification_response": classification_response,
+            "doc_id": doc_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in classification endpoint: {e}")
+        raise HTTPException(status_code=500, detail="Classification processing failed")
 
 # Phase 3: AutoGen Agent System Endpoints
 

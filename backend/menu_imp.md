@@ -1,0 +1,337 @@
+# Left Panel + Agent Interaction
+
+## Purpose
+
+Create a session-aware, agent-integrated left panel that surfaces recent documents, saved queries, reports, and saved reports for fast re-engagement. This panel serves as the entry point for interaction, reflecting user history while encouraging ongoing query/report activity.
+
+## Goals
+
+* Display previous work (uploads, queries, reports) in clean sections
+* Always show the latest work at the top of each list
+* Support contextual query/report execution with user-friendly short names
+* Enable agent-based naming, file classification, and query generation
+* Never hallucinate endpoints or agents — always use existing ones
+
+---
+
+## Left Panel Structure
+
+```
+LeftPanel
+├── Collapsible Header Section: Recent Documents (#) 
+│   └── [filename] (selects document → "Let's build a query...")
+├── Section: Recent Queries
+│   └── [short name] (runs via POST /query)
+├── Section: Reports
+│   └── [short name] (runs via POST /report)
+├── Section: Saved Reports
+│   └── [filename.xlsx] (downloads via GET /stored_queries/reports/:filename)
+└── [More] buttons per section if > 5 items
+```
+
+---
+
+## State Management
+
+Stored in localStorage:
+
+* `recentUploads`: list of uploaded files (latest first)
+* `recentQueries`: list of named queries
+* `recentReports`: list of named report templates
+* `savedReports`: list of downloadable assets
+
+---
+
+## UX Behavior
+
+* **Collapse/Expand Toggle:**
+
+  * Four sections - each with a header
+
+    * Recent Documents
+    * Recent Queries
+    * Recent Reports
+    * Saved Reports
+* **Highlighting:**
+
+  * Items created in current session are visually emphasized
+* **Section Limit:**
+
+  * Show 5 most recent per section
+  * If more, show “More” button
+
+---
+
+## Functional Behavior
+
+### Selecting a Document
+
+* Sets target for future queries/reports
+* Updates session and localStorage
+* Agent (AutoGenChat) responds: “Let’s build a query or report for `<doc>`”
+
+### Selecting a Query
+
+* Sends POST to `/query` with that query's payload
+* Displays: “Running: `<query name>`”
+
+### Selecting a Report
+
+* Sends POST to `/report` with report definition
+* Displays: “Running: `<report name>`”
+
+### Selecting a Saved Report
+
+* Triggers file download via GET `/stored_queries/reports/:filename`
+
+---
+
+## Conversation State Logic (ChatAgent)
+
+### Update Existing Agent: `ChatAgent`
+
+Do not create a new agent.
+
+The existing `ChatAgent` must be updated to support session-type-based responses at the start of the interaction. There are two relevant user states:
+
+### `New User | New Session`
+
+* Detected when localStorage contains **no recentUploads**
+* ChatAgent should respond with a **welcome prompt**:
+
+```text
+Welcome! You can upload up to five documents. Once uploaded, I can help you classify them, build queries, and generate reports.
+```
+
+* After the initial welcome, `ChatAgent` must continue responding to natural user dialogue, including questions like:
+
+  * “Is this secure?”
+  * “Can I upload Excel files?”
+  * “What happens after upload?”
+* The agent should guide the user back toward uploading, but remain conversational.
+* This behavior uses the existing `/chat-agent` route. No backend changes or new agents are required.
+
+### `Existing User | New Session`
+
+* Detected when localStorage **does** contain recent uploads
+* ChatAgent should say:
+
+```text
+Welcome back! You can select a previous document or upload a new one. I’ll help you run new queries or build updated reports.
+```
+
+* Behavior again uses the existing `ChatAgent` and `/chat-agent` route.
+
+No additional routing, agent creation, or endpoint changes are allowed.
+
+---
+
+## Naming Strategy for Queries
+
+When the user asks a query in natural language, we **update the existing ChatAgent** to include a naming step that generates a short, descriptive title (3–5 words). This does not require a new agent or endpoint.
+
+The value is returned directly in the LLM response and passed back to the frontend, where it is stored alongside the original query. The frontend saves this short name in localStorage or indexed session memory for query recall.
+
+**Prompt to Agent:**
+
+```text
+Given this user query: "Find all hotels in Boston and Chicago", suggest a short title for the query.
+```
+
+**Example Results:**
+
+* "Find all hotels with a discount above 15%" → `Find Hotels by Rate`
+* "List all open projects in Region A and Region B" → `Projects by Region`
+
+Store the result as:
+
+```json
+{
+  "doc_id": "hospital_ledger_fy2024_001",
+  "query_text": "How much did we spend on Vendor X in Q2?",
+  "sql": "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X' AND Quarter = 'Q2'",
+  "query_name": "Quarterly Vendor Spend",
+  "tags": ["vendor", "q2", "spending"]
+}
+```
+
+The short name should be stored client-side for menu display under Recent Queries and must be persisted using the existing `/save_query` (or `/save_report`) endpoint to replace the default name generated by the system. This replaces the placeholder name used by the `/query` or `/report` endpoints and ensures that the short name appears correctly in the left panel and future query history.
+
+To persist this, immediately after receiving the `query_text`, `short_name`, `sql`, and `doc_id`, issue a `POST` request to `/save_query` with the following exact payload structure (required by the backend):
+
+```json
+{
+  "doc_id": "hospital_ledger_fy2024_001",
+  "query_text": "How much did we spend on Vendor X in Q2?",
+  "sql": "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X' AND Quarter = 'Q2'",
+  "query_name": "Quarterly Vendor Spend",
+  "tags": ["vendor", "q2", "spending"]
+}
+```
+
+Only the fields listed above should be included. Cursor must not invent or add additional fields unless explicitly instructed.
+
+When user asks a query in natural language, use the ChatAgent to generate a short, descriptive title (3-5 words):
+
+**Prompt to Agent:**
+
+```text
+Given this user query: "Find all hotels in Boston and Chicago", suggest a short title for the query.
+```
+
+**Example Results:**
+
+* "Find all hotels with a discount above 15%" → `Find Hotels by Rate`
+* "List all open projects in Region A and Region B" → `Projects by Region`
+
+Store the result as:
+
+---
+
+## Naming Strategy for Reports
+
+When a user builds a report via natural language, the existing `ChatAgent` must generate a short, descriptive `report_name` (3–5 words). This replaces the default or generic name and must be saved using the existing `/save_report` endpoint.
+
+This **does not require a new agent or endpoint** — it is an update to `ChatAgent` to include name suggestion logic when the user initiates report creation.
+
+**Prompt to Agent:**
+
+```text
+Given this user report request: "Generate a monthly breakdown of spending by region and category", suggest a short title for the report.
+```
+
+**Example Results:**
+
+* "Monthly Spending Breakdown"
+* "Region and Category Spend"
+
+Use this value as the `report_name` in the `/save_report` payload.
+
+### Required Payload to `/save_report`:
+
+```json
+{
+  "doc_id": "hospital_ledger_fy2024_001",
+  "report_name": "Monthly Spending Breakdown",
+  "description": "Spending trends by region and category",
+  "group_by": ["Region", "Category"],
+  "metrics": ["Amount"],
+  "filters": {
+    "Year": ["2024"]
+  },
+  "sort_by": ["Region ASC", "Amount DESC"]
+}
+```
+
+Only the fields shown should be used. Cursor must not create additional structure unless explicitly stated.
+
+---
+
+## Agents Used
+
+Cursor should never invent or create agents on its own. Agent usage must always be explicitly defined here.
+
+Cursor must not create a new agent or endpoint unless explicitly instructed to do so. If a new agent is required, this document will state clearly: **Create a New Agent**, and will specify the exact name, its purpose, the backend logic it invokes, and any new endpoint it is authorized to use.
+
+If this document instructs that we are modifying an existing agent, it will say: **Update Existing Agent**, and will specify the agent name, what exact behavior or logic is changing, and what interaction (if any) it must support.
+
+Do only what is described here — no additional behaviors or agent logic should be added or assumed.
+
+Cursor should never invent or create agents on its own. Agent usage must always be explicitly defined here.
+
+Cursor must not create a new agent or endpoint unless explicitly instructed to do so. If a new agent is required, this document will state clearly: **Create a New Agent**, and will specify the exact name, its purpose, the backend logic it invokes, and any new endpoint it is authorized to use.
+
+For all features described in this document, use only the agents listed below.
+
+### Backend AutoGen Agents
+
+* `AgentOrchestrator` — central coordinator (main entry)
+* `ChatAgent` — handles naming, classification dialogue
+* `QueryAgent` — builds & executes SQL
+* `ReportAgent` — builds & executes reports
+* `UploadAgent` — handles file ingestion
+* `MemoryAgent` — session context
+* `FileAnalyzer` — runs on upload
+* `UserProxyAgent` — placeholder for user decisions
+
+### Frontend Components
+
+* `AutoGenChat` — active right panel agent view
+* `FileUploader` — upload interface
+* `MainLayout` — app scaffold
+
+---
+
+## Existing API Routes
+
+Cursor must not create new endpoints unless explicitly instructed. If a new route is required, this document will state clearly: **Create a New Endpoint**, and will specify the exact route path, HTTP method, expected payload, output structure, and which agent (if any) it connects to.
+
+Only use the routes explicitly listed below.
+
+### System
+
+* `GET /`
+* `GET /health`
+* `GET /tables`
+
+### File Handling
+
+* `POST /upload`
+* `GET /download-excel/:filename`
+* `GET /check-tables`
+* `GET /doc-registry`
+
+### AutoGen Agent Entry
+
+* `POST /autogen-chat`
+* `GET /autogen-status`
+* `POST /chat-agent`
+
+### Analysis
+
+* `POST /classify-document`
+* `POST /save-analysis`
+* `GET /list-json-files`
+* `GET /get-analysis/:session_id`
+
+### Query & Report
+
+* `POST /query`
+* `POST /report`
+* `POST /save_query`
+* `POST /save_report`
+* `GET /saved_queries`
+* `GET /saved_reports`
+* `GET /execute_query/:name`
+* `GET /execute_report/:name`
+* `GET /stored_queries/reports/:filename`
+
+---
+
+## Implementation Steps (Cursor)
+
+1. Create `LeftPanel.js` as a new component
+2. Load state from localStorage keys listed above
+3. Render section headers + first 5 items
+4. Add click handlers for each item type
+5. Add session highlight logic
+6. Add collapse/expand logic (persisted in component state)
+7. Import into `App.js` layout and pass handlers
+
+---
+
+## Open Questions
+
+**Q: Should collapse state be persisted across sessions?**
+A: Collapse state should be persisted per session for now — but can be saved across sessions in future if desired for user consistency.
+
+**Q: Will queries and reports be grouped by document type?**
+A: Yes — saved queries and reports may be grouped in future by document type, using either `document_type` or `document_type_code`.
+
+**Q: Is grouping logic required now?**
+A: No — grouping logic is not required for MVP but should be considered for UI scale and clarity.
+
+**Q: Should an agent help surface large volumes of saved queries or reports?**
+A: Yes — in future, `ChatAgent` may be extended to detect high query/report volume for a document and ask the user: “You have many stored queries for this document — want me to display them?”
+
+* If accepted, UI should display a grouped view (toggle or popup). Exact UI TBD.

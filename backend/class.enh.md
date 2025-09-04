@@ -29,20 +29,23 @@ To address this, the enhanced classification process will leverage:
 
 ## Proposed Enhancements
 
-### 1. Schema-Based Matching
+### 1. Proactive Schema-Based Matching
 
-* When a new document is uploaded, compare its fields (from schema inspection) to existing entries in the `doc_registry`
-* If a close match is found (e.g., 90%+ field overlap), prompt the user via `ChatAgent`:
+* **CRITICAL**: When a new document is uploaded, the system must **immediately and proactively** compare its fields to existing entries in the `doc_registry`
+* **No user interaction required** - classification questions must be presented automatically in the upload response
+* If a close match is found (e.g., 90%+ field overlap), **immediately** prompt the user via `ChatAgent`:
 
 ```text
 This document appears to match a known type: "Hospital Finance Document". Should I classify it as the same?
 ```
 
-* If no match is found, prompt:
+* If no match is found, **immediately** prompt:
 
 ```text
 What would you like to call this type of document? I classify documents so you can reuse queries and compare reports across time.
 ```
+
+**Key Requirement**: The classification conversation must be **triggered automatically during upload**, not waiting for the user to manually ask "What type of document is this?"
 
 ### 2. Conversational Support for Reclassification
 

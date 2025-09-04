@@ -24,10 +24,16 @@ function AutoGenChat({ files, onAnalysisComplete }) {
   // AutoGen conversation state
   const [conversationActive, setConversationActive] = useState(false);
   const [currentDocId, setCurrentDocId] = useState('');
+  const [inClassificationMode, setInClassificationMode] = useState(false);
+  const [classificationStep, setClassificationStep] = useState(0);
 
   // Initialize conversation when files are available
   useEffect(() => {
     if (files && Array.isArray(files) && files.length > 0) {
+      // Reset classification mode when files change
+      setInClassificationMode(false);
+      setClassificationStep(0);
+      
       // Start with first file
       setCurrentFileIndex(0);
       setMessages([]);
@@ -38,14 +44,25 @@ function AutoGenChat({ files, onAnalysisComplete }) {
       const docId = firstFile.json_filename?.replace('.json', '') || firstFile.filename?.replace('.xlsx', '');
       setCurrentDocId(docId);
       
-      // Start with a welcome message
-      const welcomeMessage = {
-        role: 'agent',
-        content: `Hello! I'm your AI assistant. I can help you with queries, reports, and analysis of your data. You have ${files.length} file(s) loaded. What would you like to know?`,
-        timestamp: new Date().toISOString()
-      };
+      // Check if any files require classification
+      const filesNeedingClassification = files.filter(file => 
+        file.requires_classification === true
+      );
       
-      setMessages([welcomeMessage]);
+      if (filesNeedingClassification.length > 0) {
+        // Start classification conversation for the first file that needs it
+        const fileToClassify = filesNeedingClassification[0];
+        startClassificationConversation(fileToClassify);
+      } else {
+        // No classification needed - show normal welcome
+        const welcomeMessage = {
+          role: 'agent',
+          content: `Hello! I'm your AI assistant. I can help you with queries, reports, and analysis of your data. You have ${files.length} file(s) loaded. What would you like to know?`,
+          timestamp: new Date().toISOString()
+        };
+        
+        setMessages([welcomeMessage]);
+      }
     } else {
       // Handle case where files is not an array or is empty
       setMessages([{
@@ -54,8 +71,64 @@ function AutoGenChat({ files, onAnalysisComplete }) {
         timestamp: new Date()
       }]);
       setConversationActive(false);
+      setInClassificationMode(false);
+      setClassificationStep(0);
     }
   }, [files]);
+
+  /**
+   * Start classification conversation for a file that requires classification
+   * @param {Object} file - File object that needs classification
+   */
+  const startClassificationConversation = async (file) => {
+    try {
+      console.log('Starting classification conversation for file:', file.name);
+      
+      // Set classification mode
+      setInClassificationMode(true);
+      setClassificationStep(0);
+      
+      // Call the /chat-agent endpoint to start classification
+      const response = await apiClient.post('/chat-agent', {
+        json_filename: file.json_filename,
+        user_response: '', // Empty for initial question
+        conversation_step: 0
+      });
+      
+      if (response.data.success) {
+        // Display the beautiful natural language question
+        const classificationMessage = {
+          role: 'agent',
+          content: response.data.current_question,
+          timestamp: new Date().toISOString()
+        };
+        
+        setMessages([classificationMessage]);
+        console.log('Classification question displayed:', response.data.current_question);
+      } else {
+        // Fallback to basic question if chat-agent fails
+        const fallbackMessage = {
+          role: 'agent',
+          content: file.classification_question || 'What type of document is this? Please provide a brief description of its purpose.',
+          timestamp: new Date().toISOString()
+        };
+        
+        setMessages([fallbackMessage]);
+        console.log('Using fallback classification question');
+      }
+    } catch (error) {
+      console.error('Failed to start classification conversation:', error);
+      
+      // Fallback to basic question on error
+      const errorMessage = {
+        role: 'agent',
+        content: file.classification_question || 'What type of document is this? Please provide a brief description of its purpose.',
+        timestamp: new Date().toISOString()
+      };
+      
+      setMessages([errorMessage]);
+    }
+  };
 
   /**
    * Send message to AutoGen agents and handle response
@@ -95,15 +168,66 @@ function AutoGenChat({ files, onAnalysisComplete }) {
         }))
       };
       
-      // Call AutoGen chat endpoint
-      const response = await apiClient.post('/autogen-chat', {
-        user_input: currentInput,
-        localStorage_context: localStorageContext
-      });
+      // Determine which endpoint to call based on conversation mode
+      let response;
+      if (inClassificationMode) {
+        // Call chat-agent endpoint for classification conversation
+        const currentFile = files[currentFileIndex];
+        response = await apiClient.post('/chat-agent', {
+          json_filename: currentFile.json_filename,
+          user_response: currentInput,
+          conversation_step: classificationStep
+        });
+      } else {
+        // Call AutoGen chat endpoint for normal conversation
+        response = await apiClient.post('/autogen-chat', {
+          user_input: currentInput,
+          localStorage_context: localStorageContext
+        });
+      }
       
       if (response.data.success) {
-        console.log('AutoGen response:', response.data);
+        console.log('Response:', response.data);
         
+        // Handle classification conversation responses
+        if (inClassificationMode) {
+          const chatAgentData = response.data;
+          
+          if (chatAgentData.conversation_status === 'completed') {
+            // Classification completed - switch back to normal mode
+            setInClassificationMode(false);
+            setClassificationStep(0);
+            
+            const completionMessage = {
+              role: 'agent',
+              content: chatAgentData.current_question || 'Classification completed! Your document is now ready for analysis.',
+              timestamp: new Date().toISOString()
+            };
+            
+            setMessages(prev => [...prev, completionMessage]);
+            
+            // Clear input and show success
+            setCurrentInput('');
+            return;
+          } else {
+            // Continue classification conversation
+            setClassificationStep(prev => prev + 1);
+            
+            const nextQuestion = {
+              role: 'agent',
+              content: chatAgentData.current_question || 'Please provide more information.',
+              timestamp: new Date().toISOString()
+            };
+            
+            setMessages(prev => [...prev, nextQuestion]);
+            
+            // Clear input
+            setCurrentInput('');
+            return;
+          }
+        }
+        
+        // Handle normal AutoGen conversation
         const agentData = response.data.data;
         const routingInfo = agentData.routing_info || {};
         

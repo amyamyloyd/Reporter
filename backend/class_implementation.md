@@ -117,23 +117,42 @@ Integrate the classification system into the existing ChatAgent workflow.
   - ✅ Context-aware responses with document metadata
 - **Status**: **COMPLETED** - Fully implemented and tested
 
-#### 2.2 Upload Flow Integration ✅ **COMPLETED**
+#### 2.2 Upload Flow Integration ❌ **NOT IMPLEMENTED**
 - **File**: `app.py` (modify existing `/upload` endpoint)
-- **Purpose**: Integrate conversational classification into upload process
-- **Workflow Changes**:
-  - ✅ After file processing, check for document type matches using exact matching
-  - ✅ If no exact match: Use fuzzy matching with 90%+ similarity threshold
-  - ✅ If no good match: Use ChatAgent to ask for document type name with natural language
+- **Purpose**: Integrate **proactive** conversational classification into upload process
+- **Current State**: Upload endpoint only does basic exact matching, sets "New" type, and waits for user to manually ask
+- **Required Workflow Changes**:
+  - ❌ **MISSING**: After file processing, use fuzzy matching instead of exact matching
+  - ❌ **MISSING**: If no good match found: **Immediately** trigger ChatAgent with classification context
+  - ❌ **MISSING**: Return proactive classification question in upload response
+  - ❌ **MISSING**: Frontend displays question automatically without user interaction
   - ✅ Update document metadata with confirmed classification
   - ✅ Enhanced JSON structure with classification data
   - ✅ New `/classify-document` endpoint for handling classification conversations
-- **Features Implemented**:
-  - ✅ Intelligent document type detection with multiple fallback strategies
-  - ✅ Natural language classification suggestions using question variations
-  - ✅ Enhanced upload response with classification data for frontend
-  - ✅ Conversational classification endpoint for user interactions
-  - ✅ Metadata updates when classification is confirmed
-- **Status**: **COMPLETED** - Fully implemented and tested
+- **Features Missing**:
+  - ❌ **CRITICAL**: Proactive classification triggering during upload
+  - ❌ **CRITICAL**: Fuzzy matching integration in upload flow
+  - ❌ **CRITICAL**: Automatic ChatAgent invocation for new document types
+  - ❌ **CRITICAL**: Natural language questions returned in upload response
+- **Status**: **NOT IMPLEMENTED** - Upload flow is reactive, not proactive
+
+#### 2.3 Proactive Upload Integration ⏳ **PENDING**
+- **File**: `app.py` (modify existing `/upload` endpoint)
+- **Purpose**: Make classification **proactive** instead of reactive
+- **Required Changes**:
+  - ⏳ Replace exact field matching with fuzzy matching using existing `fuzzy_classification.py`
+  - ⏳ Import and use existing `ClassificationQuestionGenerator` for natural language questions
+  - ⏳ Import and use existing `ChatAgent` classification methods
+  - ⏳ When no good match found: **Immediately** call ChatAgent with document context
+  - ⏳ Return proactive classification question in upload response JSON
+  - ⏳ Update frontend to display classification question automatically
+- **Implementation Approach**:
+  - Use existing `create_fuzzy_matcher()` from `utils/fuzzy_classification.py`
+  - Use existing `get_document_type_match_question()` from `utils/classification_questions.py`
+  - Use existing `ChatAgent.suggest_document_type()` method
+  - Modify upload response to include `classification_question` field
+- **Expected Result**: Upload response includes natural language question like "This looks like your previous 'Financial Report'. Should I use the same classification?"
+- **Status**: **PENDING** - Ready to implement using existing utilities
 
 ---
 

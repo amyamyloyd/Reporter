@@ -27,6 +27,11 @@ from agents.file_analyzer import analyze_single_file
 from utils.json_store import load_metadata, append_query_to_metadata, append_report_to_metadata
 from utils.duckdb_manager import save_query, save_report, ensure_all_tables_exist
 
+# Import classification utilities for proactive classification
+from utils.fuzzy_classification import create_fuzzy_matcher, find_similar_document_types
+from utils.classification_questions import get_document_type_match_question, get_no_match_question
+from agents.chat_agent import ChatAgent
+
 # Load environment variables
 load_dotenv()
 
@@ -107,6 +112,7 @@ async def view_tables():
         <html>
         <head>
             <title>AI Excel Reporting - Database Tables</title>
+            <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📊</text></svg>">
             <style>
                 body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
                 .container { max-width: 1400px; margin: 0 auto; }
@@ -175,6 +181,12 @@ async def view_tables():
                     background-color: #0056b3; 
                     transform: translateY(-1px);
                     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                }
+                
+                /* Refresh Button Container */
+                .refresh { 
+                    text-align: center; 
+                    margin: 20px 0; 
                 }
                 
                 /* Delete Button Styles */
@@ -514,6 +526,11 @@ async def view_tables():
         <body>
             <div class="container">
                 <h1>🗄️ AI Excel Reporting - Database Overview</h1>
+                
+                <!-- Refresh Button -->
+                <div class="refresh">
+                    <a href="/tables" class="action-button">🔄 Refresh Data</a>
+                </div>
                 
                 <!-- Top Row: Document Registry and Tables -->
                 <div class="grid-container">
@@ -1303,42 +1320,115 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 all_fields = list(dict.fromkeys(all_fields))
                 normalized_fields = list(dict.fromkeys(normalized_fields))
             
-            # STEP 3: Check if document type already exists by comparing fields
+            # STEP 3: Proactive document type classification using fuzzy matching
             document_type = "New"
             document_type_code = "new"
             is_new_document = True
             version = "1.0"
+            classification_question = None
+            classification_suggestions = []
+            
+            print(f"🔍 DEBUG: Starting proactive classification for fields: {all_fields}")
             
             try:
-                # Check if doc_registry table exists and query for matching document types
-                # Use a simple try/catch approach instead of information_schema
-                fields_string = '|'.join(sorted(all_fields))  # Create comparable fields string
+                # Create fields string for exact matching first
+                fields_string = '|'.join(sorted(all_fields))
                 
-                # Query for exact field matches
-                match_result = db_conn.execute("""
+                # First try exact field matching
+                exact_match_result = db_conn.execute("""
                     SELECT document_type, document_type_code 
                     FROM doc_registry 
                     WHERE field_pattern = ? 
                     LIMIT 1
                 """, [fields_string])
                 
-                match = match_result.fetchone()
-                if match:
-                    document_type = match[0]
-                    document_type_code = match[1]
+                exact_match = exact_match_result.fetchone()
+                if exact_match:
+                    document_type = exact_match[0]
+                    document_type_code = exact_match[1]
                     is_new_document = False
-                    print(f"✅ Document type match found: {document_type} ({document_type_code})")
-                    print(f"✅ Fields matched: {', '.join(all_fields)}")
+                    print(f"✅ Exact document type match found: {document_type} ({document_type_code})")
+                    print(f"✅ Fields matched exactly: {', '.join(all_fields)}")
                 else:
-                    print(f"📝 No existing document type found - marking as New")
-                    print(f"📝 New fields: {', '.join(all_fields)}")
+                    # Use fuzzy matching for similar document types
+                    print(f"📝 No exact match found - using fuzzy matching for similar types")
+                    print(f"📝 Fields to match: {', '.join(all_fields)}")
+                    
+                    # Create fuzzy matcher and find similar document types
+                    print(f"🔍 DEBUG: Creating fuzzy matcher...")
+                    fuzzy_matcher = create_fuzzy_matcher(similarity_threshold=0.8)
+                    print(f"🔍 DEBUG: Finding similar document types...")
+                    similar_matches = fuzzy_matcher.find_similar_document_types(all_fields, db_conn, limit=3)
+                    print(f"🔍 DEBUG: Found {len(similar_matches)} similar matches")
+                    
+                    if similar_matches and similar_matches[0].similarity_score >= 0.8:
+                        # High confidence match found
+                        best_match = similar_matches[0]
+                        document_type = best_match.document_type
+                        document_type_code = best_match.document_type_code
+                        is_new_document = False
+                        
+                        # Generate proactive classification question
+                        classification_question = get_document_type_match_question(
+                            best_match.document_type,
+                            {
+                                'confidence': best_match.confidence_level,
+                                'similarity_percentage': round(best_match.similarity_score * 100, 1),
+                                'matching_fields': ', '.join(best_match.matching_fields)
+                            }
+                        )
+                        
+                        print(f"✅ Fuzzy match found: {document_type} ({document_type_code}) - {best_match.similarity_score:.2f} similarity")
+                        print(f"✅ Matching fields: {', '.join(best_match.matching_fields)}")
+                        print(f"✅ Proactive question: {classification_question}")
+                    else:
+                        # No good match found - use ChatAgent for proactive classification
+                        print(f"📝 No similar document types found - calling ChatAgent for proactive classification")
+                        
+                        # Create ChatAgent and get classification suggestion
+                        chat_agent = ChatAgent()
+                        classification_context = {
+                            'doc_id': f"{excel_filename}_{timestamp}",
+                            'fields': all_fields,
+                            'metadata': {'filename': excel_filename},
+                            'recent_uploads': []
+                        }
+                        
+                        # Call ChatAgent to suggest document type
+                        classification_response = chat_agent.suggest_document_type(classification_context)
+                        
+                        if classification_response.get('success'):
+                            classification_question = classification_response.get('message', 'What type of document is this?')
+                            classification_suggestions = classification_response.get('suggestions', [])
+                            print(f"✅ ChatAgent response: {classification_question}")
+                        else:
+                            # Fallback to basic question
+                            classification_question = get_no_match_question({
+                                'fields': ', '.join(all_fields),
+                                'field_count': len(all_fields),
+                                'filename': excel_filename
+                            })
+                            print(f"✅ Fallback question: {classification_question}")
+                    
+                    # Store suggestions for frontend
+                    classification_suggestions = [
+                        {
+                            'document_type': match.document_type,
+                            'document_type_code': match.document_type_code,
+                            'similarity_score': match.similarity_score,
+                            'confidence_level': match.confidence_level,
+                            'matching_fields': match.matching_fields
+                        }
+                        for match in similar_matches
+                    ]
                     
             except Exception as e:
-                print(f"⚠️ Error checking document registry: {e}")
-                print(f"📝 Falling back to New document type")
+                print(f"⚠️ Error in proactive classification: {e}")
+                print(f"📝 Falling back to New document type with basic question")
                 document_type = "New"
                 document_type_code = "new"
                 is_new_document = True
+                classification_question = "What type of document is this? Please provide a brief description of its purpose."
             
             # STEP 3.5: Manage document versioning
             try:
@@ -1363,7 +1453,11 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 print(f"❌ Version management error: {e}")
                 version = "1.0"  # Fallback
             
-            # Create JSON structure
+            # Create JSON structure with proactive classification data
+            print(f"🔍 DEBUG: Creating JSON with classification_question: {classification_question}")
+            print(f"🔍 DEBUG: Creating JSON with classification_suggestions: {classification_suggestions}")
+            print(f"🔍 DEBUG: Creating JSON with is_new_document: {is_new_document}")
+            
             json_data = {
                 "filename": excel_filename,  # Reference the saved Excel file
                 "sheets": file_metadata.get("sheets", {}),
@@ -1377,7 +1471,12 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "document_type_code": document_type_code,  # Use determined document type code
                 "version": version,  # Add version field from version management
                 "conversation_status": "completed" if document_type != "New" else "pending",
-                "ready_for_sql_agent": True if document_type != "New" else False
+                "ready_for_sql_agent": True if document_type != "New" else False,
+                # Proactive classification data
+                "classification_question": classification_question,
+                "classification_suggestions": classification_suggestions,
+                "requires_classification": classification_question is not None,
+                "is_new_document_type": is_new_document
             }
             
             # Save JSON file
@@ -1538,6 +1637,25 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     except Exception as e:
                         print(f"Warning: Could not read JSON metadata for {json_filename}: {e}")
             
+            # Get classification data from JSON metadata
+            classification_question = None
+            classification_suggestions = []
+            requires_classification = False
+            is_new_document_type = True
+            
+            if json_filename:
+                json_path = f"stored_queries/{json_filename}"
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path, 'r') as f:
+                            json_data = json.load(f)
+                            classification_question = json_data.get("classification_question")
+                            classification_suggestions = json_data.get("classification_suggestions", [])
+                            requires_classification = json_data.get("requires_classification", False)
+                            is_new_document_type = json_data.get("is_new_document_type", True)
+                    except Exception as e:
+                        print(f"Warning: Could not read classification data for {json_filename}: {e}")
+            
             files_data.append({
                 "name": file.filename,  # Frontend expects 'name' property
                 "size": file.size,
@@ -1546,7 +1664,12 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "sheets": file_metadata.get("sheets", {}) if file_metadata else {},
                 "file_index": i,
                 "json_filename": json_filename,  # Include JSON filename for ChatAgent
-                "duckdb_table_name": duckdb_table_name  # Include DuckDB table name for AutoGen
+                "duckdb_table_name": duckdb_table_name,  # Include DuckDB table name for AutoGen
+                # Proactive classification data for frontend
+                "classification_question": classification_question,
+                "classification_suggestions": classification_suggestions,
+                "requires_classification": requires_classification,
+                "is_new_document_type": is_new_document_type
             })
         
         return {

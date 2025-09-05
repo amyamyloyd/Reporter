@@ -63,89 +63,20 @@ function App() {
         />
         }
       >
-        {/* Left side: Content (40%) - Progress Tracking and File Upload */}
+        {/* Left side: Content (40%) - File Upload and Management */}
         <div className="space-y-6">
-          {/* Header with Current Phase */}
+          {/* Simplified Header */}
           <div className="text-center">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">
-              AI Excel Analyzer
+              Slice.Dice.Report
             </h1>
             <p className="text-gray-600 mb-4">
-              Phase 2A: File Upload & Analysis
+              Upload and analyze your Excel files
             </p>
-            
-            {/* Phase Progress Indicator */}
-            <div className="flex justify-center space-x-2 mb-4">
-              <div className="w-3 h-3 bg-green-500 rounded-full" title="Phase 1: Complete"></div>
-              <div className="w-3 h-3 bg-blue-500 rounded-full" title="Phase 2A: Current"></div>
-              <div className="w-3 h-3 bg-gray-300 rounded-full" title="Phase 2B: Pending"></div>
-              <div className="w-3 h-3 bg-gray-300 rounded-full" title="Phase 3: Pending"></div>
-            </div>
           </div>
 
-          {/* Development Roadmap */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h2 className="font-semibold text-blue-800 mb-3">
-              🗺️ Development Roadmap
-            </h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Phase 1: Core Foundation</span>
-                <span className="text-xs text-green-600">(Complete)</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Phase 2A: File Upload & Analysis</span>
-                <span className="text-xs text-green-600">(Complete)</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-blue-500">🔄</span>
-                <span className="text-blue-700 font-medium">Phase 2B: Data Model Building</span>
-                <span className="text-xs text-blue-600">(In Progress)</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-gray-400">⏳</span>
-                <span className="text-gray-500">Phase 3: Query & Report Generation</span>
-                <span className="text-xs text-gray-400">(Pending)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Current Phase 2A Status */}
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <h2 className="font-semibold text-yellow-800 mb-3">
-              📋 Phase 2A: Current Status
-            </h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Backend: AutoGen file analyzer agent</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Frontend: FileUploader component</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Frontend: AgentChat component</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Backend: /chat-agent endpoint</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <span className="text-green-500">✓</span>
-                <span className="text-green-700">Testing: File upload → Agent analysis workflow</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Phase 2A: File Upload Section */}
+          {/* File Upload Section */}
           <div>
-            <h2 className="text-xl font-semibold text-gray-700 mb-4">
-              Step 1: Upload Excel Files
-            </h2>
             <FileUploader onFilesUploaded={handleFilesUploaded} />
           </div>
 
@@ -166,7 +97,7 @@ function App() {
           {analysisComplete && analysisResults && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <h3 className="font-semibold text-green-800 mb-2">
-                Phase 2A Complete! 🎉
+                Analysis Complete! 🎉
               </h3>
               <div className="space-y-2">
                 {analysisResults.map((result, index) => (
@@ -178,8 +109,8 @@ function App() {
                 ))}
               </div>
               <div className="mt-3 p-3 bg-green-100 rounded text-sm text-green-800">
-                <p className="font-medium">Next: Phase 2B - Data Model Building</p>
-                <p className="text-xs mt-1">Will build SQLite model from analysis results</p>
+                <p className="font-medium">Files analyzed successfully</p>
+                <p className="text-xs mt-1">Ready for data modeling and reporting</p>
               </div>
               <button
                 onClick={resetWorkflow}
@@ -190,41 +121,7 @@ function App() {
             </div>
           )}
 
-          {/* What's Next */}
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <h3 className="font-semibold text-gray-700 mb-2">
-              🚀 What's Next After Phase 2A
-            </h3>
-            <div className="space-y-2 text-sm text-gray-600">
-              <div className="flex items-start space-x-2">
-                <span className="text-blue-500 mt-1">→</span>
-                <div>
-                  <span className="font-medium">Phase 2B:</span> Build SQLite data model from analysis results
-                </div>
-              </div>
-              <div className="flex items-start space-x-2">
-                <span className="text-blue-500 mt-1">→</span>
-                <div>
-                  <span className="font-medium">Phase 3:</span> Generate Excel reports from data queries
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Instructions */}
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <h3 className="font-semibold text-gray-700 mb-2">
-              📖 How Phase 2A Works
-            </h3>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-gray-600">
-              <li>Upload one Excel file at a time (max 50MB)</li>
-              <li>AI agent asks what the file represents</li>
-              <li>Describe the file purpose (inventory, sales, etc.)</li>
-              <li>AI identifies basic field types and roles</li>
-              <li>Analysis results saved as JSON metadata</li>
-              <li>Simple workflow: Upload → Chat → Basic Analysis → Save</li>
-            </ol>
-          </div>
         </div>
       </MainLayout>
     </div>

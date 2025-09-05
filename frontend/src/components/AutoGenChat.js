@@ -16,6 +16,11 @@ import { apiClient } from '../api/client';
  */
 function AutoGenChat({ files, onAnalysisComplete }) {
   const [messages, setMessages] = useState([]);
+  const [conversationId] = useState(() => {
+    // Stable per page-load session
+    return (crypto?.randomUUID && crypto.randomUUID()) ||
+           Math.random().toString(36).slice(2) + Date.now().toString(36);
+  });
   const [currentInput, setCurrentInput] = useState('');
   const [processing, setProcessing] = useState(false);
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
@@ -92,7 +97,8 @@ function AutoGenChat({ files, onAnalysisComplete }) {
           doc_type: f.doc_type || 'Unknown',
           fields: f.fields || [],
           upload_time: f.upload_time || new Date().toISOString()
-        }))
+        })),
+        conversation_id: conversationId
       };
       
       // Call AutoGen chat endpoint

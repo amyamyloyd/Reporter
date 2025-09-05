@@ -105,6 +105,8 @@ Be precise with SQL syntax and handle edge cases gracefully."""
             Dict[str, Any]: Query results with SQL, rows, columns, summary
         """
         try:
+            # Store structured input for context key generation
+            self.current_structured_context = structured_input
             # Extract input data
             doc_id = structured_input.get("doc_id", "")
             query_text = structured_input.get("query_text", "")
@@ -227,8 +229,10 @@ Be precise with SQL syntax and handle edge cases gracefully."""
             logger.info(f"Ambiguity check for '{query_text}': {is_ambiguous}")
             
             if is_ambiguous:
-                # Store the original query context for follow-up
-                self.query_context[doc_id] = {
+                # Store the original query context for follow-up using (conversation_id, doc_id) key
+                conv_id = (structured_input_ctx := self.current_structured_context.get("context", {})).get("conversation_id", "") if hasattr(self, "current_structured_context") else ""
+                context_key = (conv_id, doc_id)
+                self.query_context[context_key] = {
                     "original_query": query_text,
                     "schema": schema,
                     "table_name": table_name,
@@ -251,10 +255,12 @@ Be precise with SQL syntax and handle edge cases gracefully."""
                     "sql": simple_sql
                 }
             else:
-                # Check if this is a clarification follow-up
-                if doc_id in self.query_context:
+                # Check if this is a clarification follow-up using (conversation_id, doc_id) key
+                conv_id = (structured_input_ctx := self.current_structured_context.get("context", {})).get("conversation_id", "") if hasattr(self, "current_structured_context") else ""
+                context_key = (conv_id, doc_id)
+                if context_key in self.query_context:
                     # This is a follow-up to an ambiguous query
-                    context = self.query_context[doc_id]
+                    context = self.query_context[context_key]
                     logger.info(f"Using stored context for clarification: {query_text}")
                     return self._generate_sql_with_context(query_text, context, datetime_context)
                 else:

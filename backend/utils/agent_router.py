@@ -97,7 +97,11 @@ def analyze_intent(query_text: str, context: Dict[str, Any]) -> str:
             r'\b(how much|how many|what|when|where|who|which)\b.*\b(spent|spend|cost|price|amount|budget|revenue|expense|profit|loss)\b',
             r'\b(show me|find|get|list|count|sum|total|average|max|min)\b.*\b(data|records|transactions|entries|information)\b',
             r'\b(in|during|for|from|to|between|within)\b.*\b(q[1-4]|quarter|month|year|week|day)\b.*\b(spent|spend|cost|amount)\b',
-            r'\b(what|which|how many)\b.*\b(vendor|client|customer|company|project|department|category)\b.*\b(spent|spend|cost|amount)\b'
+            r'\b(what|which|how many)\b.*\b(vendor|client|customer|company|project|department|category)\b.*\b(spent|spend|cost|amount)\b',
+            # Add specific patterns for data questions about files
+            r'\b(how many|count|total|number of)\b.*\b(records|rows|entries|items|data)\b.*\b(in|from|of)\b.*\b(this file|file|document|data)\b',
+            r'\b(how many|count|total|number of)\b.*\b(records|rows|entries|items|data)\b',
+            r'\b(what|which|how many)\b.*\b(records|rows|entries|items|data)\b.*\b(in|from|of)\b.*\b(file|document|data)\b'
         ]
         
         # Report intent patterns - requesting formatted output, summaries, charts

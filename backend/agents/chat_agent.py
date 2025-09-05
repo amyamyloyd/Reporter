@@ -110,7 +110,8 @@ Be conversational but focused on structuring the input properly."""
                     "record_count": localStorage_context.get("record_count", 0),
                     "duckdb_table_name": localStorage_context.get("duckdb_table_name", ""),
                     "metadata": localStorage_context.get("metadata", {}),
-                    "recent_uploads": localStorage_context.get("recentUploads", [])
+                    "recent_uploads": localStorage_context.get("recentUploads", []),
+                    "conversation_id": localStorage_context.get("conversation_id", "")
                 },
                 "datetime_context": {
                     "now": datetime.now().isoformat(),

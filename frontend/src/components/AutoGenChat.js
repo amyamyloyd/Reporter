@@ -173,10 +173,15 @@ function AutoGenChat({ files, onAnalysisComplete }) {
       if (inClassificationMode) {
         // Call chat-agent endpoint for classification conversation
         const currentFile = files[currentFileIndex];
+        
+        // Increment step before making the call
+        const currentStep = classificationStep + 1;
+        setClassificationStep(currentStep);
+        
         response = await apiClient.post('/chat-agent', {
           json_filename: currentFile.json_filename,
           user_response: currentInput,
-          conversation_step: classificationStep
+          conversation_step: currentStep
         });
       } else {
         // Call AutoGen chat endpoint for normal conversation
@@ -211,8 +216,6 @@ function AutoGenChat({ files, onAnalysisComplete }) {
             return;
           } else {
             // Continue classification conversation
-            setClassificationStep(prev => prev + 1);
-            
             const nextQuestion = {
               role: 'agent',
               content: chatAgentData.current_question || 'Please provide more information.',

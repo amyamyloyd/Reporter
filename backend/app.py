@@ -12,9 +12,25 @@ import pandas as pd
 import duckdb
 from pathlib import Path
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging with AutoGen debugging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('autogen_debug.log')
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Enable AutoGen conversation logging
+import autogen
+# Set AutoGen logging level - try different API
+try:
+    autogen.logging.set_level("DEBUG")
+except AttributeError:
+    # Fallback for different AutoGen versions
+    logging.getLogger("autogen").setLevel(logging.DEBUG)
 
 # Import Phase 1 modules
 from excel_processor import extract_file_metadata_from_saved_file, validate_excel_files
@@ -31,6 +47,123 @@ from utils.duckdb_manager import save_query, save_report, ensure_all_tables_exis
 from utils.fuzzy_classification import create_fuzzy_matcher, find_similar_document_types
 from utils.classification_questions import get_document_type_match_question, get_no_match_question
 from agents.chat_agent import ChatAgent
+
+# Simple input detection functions for user preference respect
+def is_simple_document_type(user_input: str) -> bool:
+    """
+    Check if user input is a simple, clear document type name
+    
+    Args:
+        user_input (str): User's response to classification question
+        
+    Returns:
+        bool: True if input is simple and clear (1-2 words, <50 chars)
+        
+    Examples:
+        - "Locations" -> True
+        - "Hotels" -> True
+        - "Vendor List" -> True
+        - "Hotel directory with room rates and locations" -> False
+        - "I don't know" -> False
+    """
+    if not user_input or not user_input.strip():
+        return False
+    
+    words = user_input.strip().split()
+    
+    # Check for simple patterns: 1-2 words, reasonable length
+    if len(words) <= 2 and len(user_input.strip()) < 50:
+        # Additional check: not vague responses
+        vague_responses = ["i don't know", "not sure", "whatever", "i don't care", "whatever you want"]
+        if user_input.lower().strip() not in vague_responses:
+            return True
+    
+    return False
+
+def generate_simple_code(document_type: str) -> str:
+    """
+    Generate document type code from simple user input
+    
+    Args:
+        document_type (str): Simple document type name from user
+        
+    Returns:
+        str: Generated document type code (3-5 characters)
+        
+    Examples:
+        - "Locations" -> "LOC"
+        - "Hotels" -> "HOT"
+        - "Vendor List" -> "VL"
+        - "Products" -> "PRO"
+    """
+    if not document_type or not document_type.strip():
+        return "DOC"
+    
+    words = document_type.strip().split()
+    
+    if len(words) == 1:
+        # Single word: take first 3 characters
+        return words[0][:3].upper()
+    else:
+        # Multiple words: take first letter of each word
+        return ''.join(word[0] for word in words if word).upper()
+
+def is_data_query(user_input: str) -> bool:
+    """
+    Detect if user is asking a data question instead of answering classification
+    
+    Args:
+        user_input (str): User's response to check
+        
+    Returns:
+        bool: True if user is asking a data question
+        
+    Examples:
+        - "how many hotels are in chicago?" -> True
+        - "what hotels are in chicago?" -> True
+        - "show me the data" -> True
+        - "Locations" -> False
+        - "Hotels" -> False
+    """
+    if not user_input or not user_input.strip():
+        return False
+    
+    # Convert to lowercase for pattern matching
+    input_lower = user_input.lower().strip()
+    
+    # Define query intent patterns
+    query_patterns = [
+        r'what.*(hotels?|data|records?|information|items?|entries?)',
+        r'how many.*(hotels?|records?|items?|entries?|data)',
+        r'show me.*(hotels?|data|records?|information)',
+        r'list.*(hotels?|data|records?|information)',
+        r'find.*(hotels?|data|records?|information)',
+        r'query.*(hotels?|data|records?|information)',
+        r'display.*(hotels?|data|records?|information)',
+        r'get.*(hotels?|data|records?|information)',
+        r'count.*(hotels?|records?|items?|entries?)',
+        r'search.*(hotels?|data|records?|information)',
+        r'filter.*(hotels?|data|records?|information)',
+        r'sort.*(hotels?|data|records?|information)',
+        r'group.*(hotels?|data|records?|information)',
+        r'summarize.*(hotels?|data|records?|information)',
+        r'analyze.*(hotels?|data|records?|information)'
+    ]
+    
+    # Check if input matches any query pattern
+    import re
+    for pattern in query_patterns:
+        if re.search(pattern, input_lower):
+            return True
+    
+    # Additional checks for common query words
+    query_words = ['what', 'how many', 'show', 'list', 'find', 'query', 'display', 'get', 'count', 'search', 'filter', 'sort', 'group', 'summarize', 'analyze']
+    if any(word in input_lower for word in query_words):
+        # Check if it's not just a simple document type name
+        if not is_simple_document_type(user_input):
+            return True
+    
+    return False
 
 # Load environment variables
 load_dotenv()
@@ -1398,17 +1531,14 @@ async def upload_files(files: List[UploadFile] = File(...)):
                         classification_response = chat_agent.suggest_document_type(classification_context)
                         
                         if classification_response.get('success'):
-                            classification_question = classification_response.get('message', 'What type of document is this?')
+                            # Don't generate question here - let chat-agent handle it
+                            classification_question = None
                             classification_suggestions = classification_response.get('suggestions', [])
-                            print(f"✅ ChatAgent response: {classification_question}")
+                            print(f"✅ ChatAgent response received, classification needed")
                         else:
-                            # Fallback to basic question
-                            classification_question = get_no_match_question({
-                                'fields': ', '.join(all_fields),
-                                'field_count': len(all_fields),
-                                'filename': excel_filename
-                            })
-                            print(f"✅ Fallback question: {classification_question}")
+                            # Don't generate question here - let chat-agent handle it
+                            classification_question = None
+                            print(f"✅ Classification needed, will be handled by chat-agent")
                     
                     # Store suggestions for frontend
                     classification_suggestions = [
@@ -1428,7 +1558,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 document_type = "New"
                 document_type_code = "new"
                 is_new_document = True
-                classification_question = "What type of document is this? Please provide a brief description of its purpose."
+                classification_question = None  # Let chat-agent handle question generation
             
             # STEP 3.5: Manage document versioning
             try:
@@ -1475,7 +1605,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 # Proactive classification data
                 "classification_question": classification_question,
                 "classification_suggestions": classification_suggestions,
-                "requires_classification": classification_question is not None,
+                "requires_classification": is_new_document,
                 "is_new_document_type": is_new_document
             }
             
@@ -1775,6 +1905,13 @@ async def chat_agent_conversation(request: Dict[str, Any]):
         Dict with next question, conversation status, and updated JSON
     """
     try:
+        # DEBUG: Log all incoming requests
+        logger.debug(f"=== CHAT-AGENT REQUEST DEBUG ===")
+        logger.debug(f"Request: {request}")
+        logger.debug(f"JSON filename: {request.get('json_filename', 'MISSING')}")
+        logger.debug(f"User response: '{request.get('user_response', 'EMPTY')}'")
+        logger.debug(f"Conversation step: {request.get('conversation_step', 'MISSING')}")
+        logger.debug(f"=================================")
         # Extract request data
         json_filename = request.get("json_filename", "")
         user_response = request.get("user_response", "")
@@ -1814,59 +1951,153 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                 "message": f"Document identified as {document_type} - ready for SQL agent"
             }
         
-        # Initialize conversation flow for new/unknown document types
-        conversation_flow = [
-            {
-                "step": 1,
-                "question": f"Per my analysis, this file includes {', '.join(json_data.get('fields', []))} with {json_data.get('record_count', 0)} records. Is that correct?",
-                "field": "user_confirmation",
-                "next_step": 2
-            },
-            {
-                "step": 2,
-                "question": "What type of document is this? (e.g., General Ledger, Vendor Reference, Campaign Data) and please provide a brief description of its purpose",
-                "field": "document_type_and_description",
-                "next_step": 3
-            },
-            {
-                "step": 3,
-                "question": "Ready to complete analysis",
-                "field": "analysis_complete",
-                "next_step": "complete"
-            }
-        ]
+        # Initialize conversation flow for new/unknown document types using natural language
+        # This will be set up when conversation_step == 0
+        conversation_flow = []
+        
+        # Get basic file info for question generation
+        all_fields = json_data.get('fields', [])
+        excel_filename = json_data.get('filename', '')
+        
+        # Set up conversation flow for all steps (needed for all conversation steps)
+        if not conversation_flow:
+            # Create fuzzy matcher and find similar document types
+            fuzzy_matcher = create_fuzzy_matcher()
+            similar_matches = find_similar_document_types(fuzzy_matcher, all_fields)
+            
+            # Generate natural language question based on similarity results
+            if similar_matches and similar_matches[0].similarity_score >= 0.8:
+                # High confidence match found - ask if user wants to reuse the type
+                best_match = similar_matches[0]
+                classification_question = get_document_type_match_question(
+                    best_match.document_type,
+                    context={
+                        'confidence': best_match.confidence_level,
+                        'similarity': best_match.similarity_score,
+                        'matching_fields': ', '.join(best_match.matching_fields)
+                    }
+                )
+                logger.debug(f"🔍 GENERATED MATCH QUESTION: {classification_question}")
+            else:
+                # No good match found - ask user to name the new type
+                classification_question = get_no_match_question({
+                    'fields': ', '.join(all_fields),
+                    'field_count': len(all_fields),
+                    'filename': excel_filename
+                })
+                logger.debug(f"🔍 GENERATED NO-MATCH QUESTION: {classification_question}")
+            
+            # Set up conversation flow with the generated question
+            conversation_flow = [
+                {
+                    "step": 1,
+                    "question": classification_question,
+                    "field": "document_type_and_description",
+                    "next_step": "complete"
+                }
+            ]
         
         # Handle user response if provided
         if user_response and conversation_step > 0:
+            # Check if user switched to asking data questions instead of answering classification
+            # This must happen BEFORE any classification logic
+            if is_data_query(user_response):
+                print(f"🔍 Query intent detected: {user_response}")
+                
+                # Auto-classify the document with a generic type if not already classified
+                if not json_data.get('document_type'):
+                    # Use a generic classification for query processing
+                    json_data["document_type"] = "Data Query Document"
+                    json_data["document_type_code"] = "DQD"
+                    json_data["user_description"] = "Auto-classified for query processing"
+                    json_data["ai_description"] = "Document auto-classified to enable data query processing"
+                    json_data["ready_for_duckdb"] = True
+                    json_data["analysis_complete"] = True
+                    
+                    print(f"✅ Auto-classified document for query processing")
+                
+                # Return a response indicating we're switching to query mode
+                return {
+                    "success": True,
+                    "conversation_status": "query_mode",
+                    "current_question": f"I understand you want to query the data. Let me process your question: '{user_response}'. The document has been auto-classified as {json_data.get('document_type')} to enable query processing.",
+                    "next_step": "query_processing",
+                    "total_steps": 1,
+                    "current_step": 1,
+                    "json_data": json_data,
+                    "message": "Switched to query processing mode",
+                    "query_intent": True,
+                    "user_query": user_response
+                }
+            
+            # If not a query, proceed with normal classification logic
+            if conversation_step - 1 >= len(conversation_flow):
+                raise HTTPException(status_code=400, detail=f"Invalid conversation step {conversation_step}. Available steps: {len(conversation_flow)}")
+            
             current_step = conversation_flow[conversation_step - 1]
             field_name = current_step["field"]
             
             # Process response based on field type
-            if field_name == "user_confirmation":
-                # Check if response is affirmative
-                affirmative_responses = ["yes", "sure", "correct", "that's right", "yep", "ok", "good", "right"]
-                is_affirmative = any(response in user_response.lower() for response in affirmative_responses)
-                
-                if not is_affirmative:
-                    return {
-                        "success": False,
-                        "error": "Please confirm that the field analysis is correct before proceeding"
-                    }
-                
-                json_data[field_name] = True
-            elif field_name == "document_type_and_description":
-                # Use LLM classification instead of regex patterns
+            if field_name == "document_type_and_description":
+                # Smart classification: respect simple user inputs, use LLM for complex ones
                 response_text = user_response.strip()
                 
-                try:
-                    # Call the new LLM classification endpoint
-                    from openai import OpenAI
+                # Check if user provided a simple, clear document type name
+                if is_simple_document_type(response_text):
+                    # Use simple user input directly - respect user preference
+                    document_type = response_text.strip().title()
+                    document_type_code = generate_simple_code(document_type)
                     
-                    # Initialize OpenAI client
-                    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                    # Store simple classification results
+                    json_data["document_type"] = document_type
+                    json_data["document_type_code"] = document_type_code
+                    json_data["user_description"] = response_text
+                    json_data["ai_description"] = f"Document classified as {document_type} based on user input"
+                    json_data["ready_for_duckdb"] = True
                     
-                    # Create system prompt for document classification
-                    system_prompt = """You are an expert document classifier for business data files.
+                    print(f"✅ Simple classification: {document_type} ({document_type_code}) - User preference respected")
+                    
+                    # Update document registry with the simple classification
+                    try:
+                        from duckdb_manager import add_new_document_type
+                        conn = create_persistent_database()
+                        
+                        # Get the original fields from the JSON (for registry matching)
+                        all_fields = json_data.get('fields', [])
+                        
+                        registry_updated = add_new_document_type(
+                            conn,
+                            document_type,
+                            document_type_code,
+                            all_fields,  # Use original field names for registry matching
+                            True,  # reuse_regularly = True (assume all are reusable)
+                            f"Document classified as {document_type} based on user input"
+                        )
+                        
+                        if registry_updated:
+                            print(f"✅ Document type '{document_type}' added to registry")
+                        else:
+                            print(f"⚠️  Failed to add document type to registry")
+                            
+                        conn.close()
+                        
+                    except Exception as e:
+                        print(f"⚠️  Registry update failed: {e}")
+                        # Continue even if registry update fails
+                
+                else:
+                    # Complex input - use LLM classification
+                    print(f"Complex input detected, using LLM classification: {response_text}")
+                    
+                    try:
+                        # Call the new LLM classification endpoint
+                        from openai import OpenAI
+                        
+                        # Initialize OpenAI client
+                        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+                        
+                        # Create system prompt for document classification
+                        system_prompt = """You are an expert document classifier for business data files.
 
 Your task is to analyze a user's description of a document and determine:
 1. A professional, clear document type name
@@ -1886,113 +2117,113 @@ Return your response as valid JSON with these exact fields:
   "description": "Clear description of the document's purpose and use case"
 }"""
 
-                    # Create user prompt
-                    user_prompt = f"""Please classify this document based on the user's description:
+                        # Create user prompt
+                        user_prompt = f"""Please classify this document based on the user's description:
 
 User Description: "{response_text}"
 
 Analyze the description and provide a professional document classification."""
 
-                    # Call OpenAI API
-                    response = client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        max_tokens=200,
-                        temperature=0.1
-                    )
+                        # Call OpenAI API
+                        response = client.chat.completions.create(
+                            model="gpt-4",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt}
+                            ],
+                            max_tokens=200,
+                            temperature=0.1
+                        )
                     
-                    # Extract response content
-                    ai_response = response.choices[0].message.content.strip()
-                    
-                    # Parse JSON response
-                    try:
-                        classification = json.loads(ai_response)
+                        # Extract response content
+                        ai_response = response.choices[0].message.content.strip()
                         
-                        # Validate required fields
-                        required_fields = ["document_type", "document_type_code", "description"]
-                        for field in required_fields:
-                            if field not in classification:
-                                raise ValueError(f"Missing required field: {field}")
-                        
-                        # Store AI classification results
-                        document_type = classification["document_type"]
-                        document_type_code = classification["document_type_code"]
-                        ai_description = classification["description"]
-                        
-                        json_data["document_type"] = document_type
-                        json_data["document_type_code"] = document_type_code
-                        json_data["ai_description"] = ai_description
-                        json_data["user_description"] = response_text
-                        json_data["ready_for_duckdb"] = True
-                        
-                        print(f"✅ AI Classification successful: {document_type} ({document_type_code})")
-                        
-                        # Update document registry with the new document type
+                        # Parse JSON response
                         try:
-                            from duckdb_manager import add_new_document_type
-                            conn = create_persistent_database()
+                            classification = json.loads(ai_response)
+                        
+                            # Validate required fields
+                            required_fields = ["document_type", "document_type_code", "description"]
+                            for field in required_fields:
+                                if field not in classification:
+                                    raise ValueError(f"Missing required field: {field}")
                             
-                            # Get the original fields from the JSON (for registry matching)
-                            all_fields = json_data.get('fields', [])
+                            # Store AI classification results
+                            document_type = classification["document_type"]
+                            document_type_code = classification["document_type_code"]
+                            ai_description = classification["description"]
+                        
+                            json_data["document_type"] = document_type
+                            json_data["document_type_code"] = document_type_code
+                            json_data["ai_description"] = ai_description
+                            json_data["user_description"] = response_text
+                            json_data["ready_for_duckdb"] = True
                             
-                            registry_updated = add_new_document_type(
-                                conn,
-                                document_type,
-                                document_type_code,
-                                all_fields,  # Use original field names for registry matching
-                                True,  # reuse_regularly = True (assume all are reusable)
-                                ai_description  # Use AI-generated description
-                            )
-                            
-                            if registry_updated:
-                                print(f"✅ Document type '{document_type}' added to registry")
-                            else:
-                                print(f"⚠️  Failed to add document type to registry")
+                            print(f"✅ AI Classification successful: {document_type} ({document_type_code})")
+                        
+                            # Update document registry with the new document type
+                            try:
+                                from duckdb_manager import add_new_document_type
+                                conn = create_persistent_database()
                                 
-                            conn.close()
+                                # Get the original fields from the JSON (for registry matching)
+                                all_fields = json_data.get('fields', [])
+                                
+                                registry_updated = add_new_document_type(
+                                    conn,
+                                    document_type,
+                                    document_type_code,
+                                    all_fields,  # Use original field names for registry matching
+                                    True,  # reuse_regularly = True (assume all are reusable)
+                                    ai_description  # Use AI-generated description
+                                )
                             
-                        except Exception as e:
-                            print(f"⚠️  Registry update failed: {e}")
-                            # Continue even if registry update fails
+                                if registry_updated:
+                                    print(f"✅ Document type '{document_type}' added to registry")
+                                else:
+                                    print(f"⚠️  Failed to add document type to registry")
+                                    
+                                conn.close()
+                                
+                            except Exception as e:
+                                print(f"⚠️  Registry update failed: {e}")
+                                # Continue even if registry update fails
                         
-                    except json.JSONDecodeError as e:
-                        print(f"❌ Failed to parse AI response as JSON: {e}")
-                        print(f"AI Response: {ai_response}")
+                        except json.JSONDecodeError as e:
+                            print(f"❌ Failed to parse AI response as JSON: {e}")
+                            print(f"AI Response: {ai_response}")
+                            
+                            # Fallback: create basic classification
+                            words = response_text.split()
+                            if len(words) >= 2:
+                                fallback_type = ' '.join(words[:2]).strip()
+                            else:
+                                fallback_type = response_text[:50].strip()
+                            
+                            fallback_code = fallback_type.replace(' ', '').upper()[:5]
+                            
+                            json_data["document_type"] = fallback_type
+                            json_data["document_type_code"] = fallback_code
+                            json_data["ai_description"] = f"Document classified as {fallback_type} based on user description"
+                            json_data["user_description"] = response_text
+                            json_data["ready_for_duckdb"] = True
+                            
+                            print(f"⚠️  Using fallback classification: {fallback_type} ({fallback_code})")
+                            
+                    except Exception as e:
+                        print(f"❌ LLM classification failed: {e}")
                         
-                        # Fallback: create basic classification
-                        words = response_text.split()
-                        if len(words) >= 2:
-                            fallback_type = ' '.join(words[:2]).strip()
-                        else:
-                            fallback_type = response_text[:50].strip()
-                        
-                        fallback_code = fallback_type.replace(' ', '').upper()[:5]
+                        # Ultimate fallback
+                        fallback_type = "Unknown Document Type"
+                        fallback_code = "UNK"
                         
                         json_data["document_type"] = fallback_type
                         json_data["document_type_code"] = fallback_code
-                        json_data["ai_description"] = f"Document classified as {fallback_type} based on user description"
+                        json_data["ai_description"] = "Document classification failed - using fallback"
                         json_data["user_description"] = response_text
                         json_data["ready_for_duckdb"] = True
                         
-                        print(f"⚠️  Using fallback classification: {fallback_type} ({fallback_code})")
-                        
-                except Exception as e:
-                    print(f"❌ LLM classification failed: {e}")
-                    
-                    # Ultimate fallback
-                    fallback_type = "Unknown Document Type"
-                    fallback_code = "UNK"
-                    
-                    json_data["document_type"] = fallback_type
-                    json_data["document_type_code"] = fallback_code
-                    json_data["ai_description"] = "Document classification failed - using fallback"
-                    json_data["user_description"] = response_text
-                    json_data["ready_for_duckdb"] = True
-                    
-                    print(f"⚠️  Using ultimate fallback: {fallback_type} ({fallback_code})")
+                        print(f"⚠️  Using ultimate fallback: {fallback_type} ({fallback_code})")
                 
             elif field_name == "analysis_complete":
                 json_data[field_name] = True
@@ -2027,33 +2258,16 @@ Analyze the description and provide a professional document classification."""
             
             print(f"Updated JSON file: {json_path} with {field_name}")
         
-        # Determine next step
+        # Determine next step with simplified natural language flow
         if conversation_step == 0:
-            # First time - start conversation
+            # First time - start conversation with natural language question
             next_step = 1
             current_question = conversation_flow[0]["question"]
             conversation_status = "started"
-        elif conversation_step < len(conversation_flow):
-            # Continue conversation - determine the next step to show
-            if conversation_step == 1:
-                # After step 1, show step 2 question
-                next_step = 2
-                current_question = conversation_flow[1]["question"]
-                conversation_status = "in_progress"
-            elif conversation_step == 2:
-                # After step 2, check if document classification is complete
-                if json_data.get('document_type') and json_data.get('document_type_code'):
-                    # Document classification is complete, show step 3
-                    next_step = 3
-                    current_question = f"Great! So this is a {json_data.get('document_type')} ({json_data.get('document_type_code')}) - ready to query, create a report, or do you have another file to upload? This document is being saved as {json_data.get('document_type')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json"
-                    conversation_status = "in_progress"
-                else:
-                    # Still waiting for document classification response
-                    next_step = 2
-                    current_question = "Please provide a description of what type of document this is."
-                    conversation_status = "waiting_for_input"
-            elif conversation_step == 3:
-                # After step 3, show completion message
+        elif conversation_step == 1:
+            # After step 1, check if document classification is complete
+            if json_data.get('document_type') and json_data.get('document_type_code'):
+                # Document classification is complete
                 next_step = "complete"
                 current_question = f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). This document is being saved as {json_data.get('document_type', 'document')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json. The document is now ready for DuckDB processing and SQL queries."
                 conversation_status = "completed"
@@ -2105,6 +2319,20 @@ Analyze the description and provide a professional document classification."""
                     print(f"❌ DuckDB table creation failed: {e}")
                     json_data["duckdb_error"] = str(e)
                     json_data["duckdb_loaded"] = False
+            else:
+                # Document classification not complete - this should not happen with single question flow
+                # If we reach here, there's an issue with the classification logic
+                print(f"⚠️  Warning: Document classification not complete after user response")
+                print(f"Document type: {json_data.get('document_type')}")
+                print(f"Document code: {json_data.get('document_type_code')}")
+                print(f"User response: {user_response}")
+                
+                # Force completion to avoid infinite loop
+                next_step = "complete"
+                current_question = "Classification completed. The document is ready for processing."
+                conversation_status = "completed"
+                json_data["analysis_complete"] = True
+                json_data["ready_for_duckdb"] = True
         else:
             # Conversation already complete
             current_question = "Conversation already completed."
@@ -2115,6 +2343,14 @@ Analyze the description and provide a professional document classification."""
         if conversation_status == "completed":
             with open(json_path, 'w') as f:
                 json.dump(json_data, f, indent=2)
+        
+        # DEBUG: Log response
+        logger.debug(f"=== CHAT-AGENT RESPONSE DEBUG ===")
+        logger.debug(f"Conversation status: {conversation_status}")
+        logger.debug(f"Current question: {current_question}")
+        logger.debug(f"Next step: {next_step}")
+        logger.debug(f"Current step: {conversation_step}")
+        logger.debug(f"=================================")
         
         return {
             "success": True,

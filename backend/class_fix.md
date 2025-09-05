@@ -2,10 +2,11 @@
 
 ## 🐛 **Bug Analysis Summary**
 
-### **Bug #1: Duplicate Field Confirmation**
-- **Symptom**: User sees the same question twice: "Per my analysis, this file includes Hotel Name, Location (city), Discount Rate with 40 records. Is that correct?"
+### **Bug #1: Duplicate Questions & Ignored User Input**
+- **Symptom**: User sees the same question twice: "I don't see a match for this document type. What would you like to call it?"
 - **Root Cause**: Both old hardcoded conversation flow AND new natural language system are running simultaneously
-- **Impact**: Confusing user experience, stilted language
+- **Additional Issue**: System ignores simple user inputs like "Locations" and always uses LLM classification
+- **Impact**: Confusing user experience, user preferences ignored, stilted language
 
 ### **Bug #2: Conversation Closes After Classification**
 - **Symptom**: After classification, user asks "what hotels are in chicago?" → gets "Conversation already completed"
@@ -33,6 +34,8 @@
   - Replace hardcoded questions with natural language variations
   - Use fuzzy matching for similar document types
   - Generate context-aware questions based on document similarity
+  - **NEW**: Add simple input detection to respect user preferences
+  - **NEW**: Skip LLM classification for simple, clear user inputs
 
 #### **1.2 Remove Duplicate Logic**
 - **Current Issue**: Both old and new classification systems running
@@ -40,6 +43,7 @@
   - Remove old hardcoded conversation flow
   - Ensure only new natural language system is active
   - Use existing `get_document_type_match_question()` and `get_no_match_question()` functions
+  - **NEW**: Fix duplicate question issue by ensuring single question flow
 
 #### **1.3 Integration Points**
 - **Use existing utilities**:
@@ -47,6 +51,34 @@
   - `utils/fuzzy_classification.py` - Similar document detection
   - `utils/classification_utils.py` - Document type management
 - **Expected Result**: Single, natural language question instead of duplicate stilted questions
+- **NEW**: Simple input detection and user preference respect
+
+---
+
+### **Phase 1.5: Simple Input Detection & User Preference Respect** (Priority 1.5)
+**Goal**: Respect simple user inputs and avoid unnecessary LLM calls
+
+#### **1.5.1 Add Simple Input Detection**
+- **File**: `app.py` - `/chat-agent` endpoint user response handling
+- **Current Issue**: System always calls LLM even for simple inputs like "Locations"
+- **Required Changes**:
+  - Add `is_simple_document_type()` function to detect clear, simple inputs
+  - Detect 1-2 word responses (e.g., "Locations", "Hotels", "Vendors")
+  - Skip LLM classification for simple inputs
+  - Generate document type code from simple user input
+
+#### **1.5.2 Smart Classification Logic**
+- **Current Issue**: LLM overrides user preferences
+- **Required Changes**:
+  - **Simple Input**: Use user input directly as document type
+  - **Complex Input**: Use LLM for classification
+  - **Vague Input**: Ask for clarification
+  - Generate appropriate document type codes for both cases
+
+#### **1.5.3 Expected Behavior**
+- **User says "Locations"** → System creates "Locations" document type with "LOC" code
+- **User says "Hotel directory with room rates"** → System uses LLM for classification
+- **User says "I don't know"** → System asks for clarification
 
 ---
 
@@ -134,6 +166,36 @@ else:
         'field_count': len(all_fields),
         'filename': excel_filename
     })
+
+# NEW: Simple input detection and user preference respect
+def is_simple_document_type(user_input: str) -> bool:
+    """Check if user input is a simple, clear document type name"""
+    words = user_input.strip().split()
+    return len(words) <= 2 and len(user_input.strip()) < 50
+
+def generate_simple_code(document_type: str) -> str:
+    """Generate document type code from simple user input"""
+    words = document_type.strip().split()
+    if len(words) == 1:
+        return words[0][:3].upper()
+    else:
+        return ''.join(word[0] for word in words).upper()
+
+# Handle user response with smart classification
+if field_name == "document_type_and_description":
+    response_text = user_response.strip()
+    
+    if is_simple_document_type(response_text):
+        # Use simple user input directly
+        document_type = response_text.strip().title()
+        document_type_code = generate_simple_code(document_type)
+        json_data["document_type"] = document_type
+        json_data["document_type_code"] = document_type_code
+        json_data["user_description"] = response_text
+        json_data["ready_for_duckdb"] = True
+    else:
+        # Use LLM for complex inputs
+        # ... existing LLM classification logic
 ```
 
 ### **Frontend Query Intent Detection**
@@ -183,6 +245,9 @@ const autoClassifyDocument = async () => {
 - [ ] No duplicate field confirmation questions
 - [ ] Single, context-aware question per classification
 - [ ] Fuzzy matching integration working
+- [ ] **NEW**: Simple user inputs like "Locations" are respected
+- [ ] **NEW**: No unnecessary LLM calls for simple inputs
+- [ ] **NEW**: User preferences override LLM classification
 
 ### **Phase 2 Complete When:**
 - [ ] User can ask data questions immediately after upload
@@ -232,15 +297,22 @@ const autoClassifyDocument = async () => {
 
 ## 🎯 **Expected User Experience**
 
-1. **Upload**: User uploads hotels.xlsx
-2. **Question**: System asks: "I don't see a match for this document type. What would you like to call it?"
-3. **User Response**: Either answers question OR asks "what hotels are in chicago?"
-4. **Auto-Classification**: If data question, system auto-classifies as "Hotel Directory"
-5. **Query Processing**: System processes query and shows results normally
-6. **Seamless**: User never knows they were in "classification mode"
+1. **Upload**: User uploads locations.xlsx
+2. **Question**: System asks once: "I don't see a match for this document type. What would you like to call it?"
+3. **User Response**: "Locations"
+4. **Smart Classification**: System respects user input, creates "Locations" document type with "LOC" code
+5. **No LLM Override**: User's simple input is used directly, no unnecessary LLM calls
+6. **Query Processing**: System processes queries normally after classification
+7. **Seamless**: User never knows they were in "classification mode"
+
+### **Alternative Scenarios:**
+- **Complex Input**: User says "Hotel directory with room rates and locations" → System uses LLM for detailed classification
+- **Vague Input**: User says "I don't know" → System asks for clarification
+- **Data Question**: User asks "what hotels are in chicago?" → System auto-classifies and processes query
 
 ---
 
 **Status**: Ready for implementation
-**Priority**: Fix #1 (Chat-Agent) → Fix #2 (Frontend) → Fix #3 (Query Processing)
+**Priority**: Fix #1 (Chat-Agent + Simple Input) → Fix #2 (Frontend) → Fix #3 (Query Processing)
 **Estimated Time**: 2-3 hours for complete implementation
+**NEW Priority**: Phase 1.5 (Simple Input Detection) should be implemented immediately after Phase 1

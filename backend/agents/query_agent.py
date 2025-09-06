@@ -1,3 +1,4 @@
+
 """
 QueryAgent - Convert Query Intent into SQL + Response
 AutoGen Excel Intelligence System - Phase 3
@@ -13,6 +14,7 @@ import os
 import json
 import logging
 import duckdb
+import time
 from typing import Dict, Any, Optional, List
 
 # Import AutoGen components
@@ -23,7 +25,7 @@ except ImportError as e:
     raise
 
 # Import our utility modules
-from utils.duckdb_manager import get_query_by_name, save_query
+from utils.duckdb_manager import get_query_by_name, save_query, check_sql_uniqueness
 from utils.json_store import load_metadata, append_query_to_metadata
 
 # Configure logging
@@ -90,7 +92,7 @@ Be precise with SQL syntax and handle edge cases gracefully."""
             logger.error(f"Failed to initialize QueryAgent: {e}")
             raise
 
-    def process_query_request(self, structured_input: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_query_request(self, structured_input: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process query request and execute SQL
         
@@ -189,8 +191,8 @@ Be precise with SQL syntax and handle edge cases gracefully."""
                 "result_management": result_management
             }
             
-            # Auto-save query (using temp_query as fallback name)
-            self._save_query_automatically(query_result, doc_id)
+            # Auto-save query with intelligent classification
+            await self._save_query_automatically(query_result, doc_id)
             
             logger.info(f"QueryAgent completed successfully for doc_id: {doc_id}")
             return query_result
@@ -748,47 +750,123 @@ SQL Query:"""
             logger.error(f"Error generating summary: {e}")
             return f"Query executed successfully for: {query_text}"
 
-    def _save_query_automatically(self, query_result: Dict[str, Any], doc_id: str):
+    async def _save_query_automatically(self, query_result: Dict[str, Any], doc_id: str):
         """
-        Automatically save query using temp_query as fallback name
+        Automatically save query using intelligent classification
+        
+        This method implements intelligent query classification by:
+        1. Loading document metadata to get document type
+        2. Checking SQL uniqueness within document type
+        3. Generating LLM name for unique queries
+        4. Saving with proper classification fields
         
         Args:
             query_result (Dict[str, Any]): Query results
             doc_id (str): Document identifier
         """
         try:
-            # Use temp_query as fallback name
-            query_name = "temp_query"
+            # Load document metadata for classification
+            doc_metadata = load_metadata(doc_id)
+            if not doc_metadata:
+                logger.error(f"No metadata found for doc_id: {doc_id}")
+                return
+                
+            # Extract document type information
+            document_type = doc_metadata.get("document_type", "Unknown")
+            document_type_code = doc_metadata.get("document_type_code", "UNK")
+            sql_query = query_result.get("sql", "")
+            query_text = query_result.get("query_text", "")
             
-            # Save to DuckDB
+            logger.info(f"Starting intelligent classification for document type: {document_type}")
+            
+            # Connect to DuckDB
             conn = duckdb.connect("excel_reporting.db")
-            save_success = save_query(
-                conn=conn,
-                doc_id=doc_id,
-                query_name=query_name,
-                query_text=query_result.get("query_text", ""),
-                sql=query_result.get("sql", ""),
-                tags=["auto_saved"],
-                description="Automatically saved query"
-            )
+            
+            # Check SQL uniqueness within document type
+            uniqueness_result = check_sql_uniqueness(conn, sql_query, document_type_code)
+            
+            if uniqueness_result["is_unique"]:
+                # SQL is unique - generate meaningful name and save globally
+                logger.info(f"✅ Unique query detected for document type: {document_type}")
+                
+                # Import LLM naming function
+                from app import generate_query_name_with_llm
+                
+                naming_result = await generate_query_name_with_llm(
+                    sql_query, query_text, document_type, document_type_code
+                )
+                
+                if naming_result["success"]:
+                    query_name = naming_result["query_name"]
+                    description = naming_result["description"]
+                    logger.info(f"LLM generated query name: {query_name}")
+                else:
+                    # Use fallback name when LLM fails
+                    query_name = naming_result["query_name"]
+                    description = naming_result["description"]
+                    logger.warning(f"Using fallback query name: {query_name}")
+                
+                # Save globally (is_global = TRUE) for reuse across similar document types
+                save_success = save_query(
+                    conn=conn,
+                    doc_id=doc_id,
+                    document_type=document_type,
+                    document_type_code=document_type_code,
+                    query_name=query_name,
+                    query_text=query_text,
+                    sql=sql_query,
+                    sql_hash=uniqueness_result["sql_hash"],
+                    is_global=True,
+                    tags=["auto_saved"],
+                    description=description
+                )
+                
+                if save_success:
+                    logger.info(f"✅ Unique query saved globally: {query_name}")
+                else:
+                    logger.warning(f"Failed to save unique query: {query_name}")
+                    
+            else:
+                # SQL already exists - save only to document-specific JSON to avoid duplicates
+                existing_query = uniqueness_result["existing_query"]
+                query_name = f"temp_query_{doc_id}_{int(time.time())}"
+                
+                logger.info(f"📋 Duplicate query detected - similar to: {existing_query['query_name']}")
+                
+                # Save locally only (is_global = FALSE) to avoid database bloat
+                save_success = save_query(
+                    conn=conn,
+                    doc_id=doc_id,
+                    document_type=document_type,
+                    document_type_code=document_type_code,
+                    query_name=query_name,
+                    query_text=query_text,
+                    sql=sql_query,
+                    sql_hash=uniqueness_result["sql_hash"],
+                    is_global=False,
+                    tags=["auto_saved"],
+                    description=f"Local copy of: {existing_query['query_name']}"
+                )
+                
+                if save_success:
+                    logger.info(f"📋 Duplicate query saved locally: {query_name}")
+                else:
+                    logger.warning(f"Failed to save duplicate query: {query_name}")
+            
             conn.close()
             
-            if save_success:
-                # Also append to JSON metadata
-                query_data = {
-                    "query_name": query_name,
-                    "query_text": query_result.get("query_text", ""),
-                    "sql": query_result.get("sql", ""),
-                    "timestamp": query_result.get("execution_time", ""),
-                    "auto_saved": True
-                }
-                append_query_to_metadata(doc_id, query_data)
-                logger.info(f"Query auto-saved as '{query_name}' for doc_id: {doc_id}")
-            else:
-                logger.warning(f"Failed to auto-save query for doc_id: {doc_id}")
+            # Also append to JSON metadata
+            query_data = {
+                "query_name": query_name,
+                "query_text": query_text,
+                "sql": sql_query,
+                "timestamp": query_result.get("execution_time", ""),
+                "auto_saved": True
+            }
+            append_query_to_metadata(doc_id, query_data)
                 
         except Exception as e:
-            logger.error(f"Error auto-saving query: {e}")
+            logger.error(f"Error in intelligent query classification: {e}")
 
     def get_agent_info(self) -> Dict[str, Any]:
         """

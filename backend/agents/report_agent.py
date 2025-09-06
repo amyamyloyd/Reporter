@@ -13,6 +13,7 @@ import os
 import json
 import logging
 import duckdb
+import time
 from typing import Dict, Any, Optional, List
 
 # Import AutoGen components
@@ -24,7 +25,7 @@ except ImportError as e:
 
 # Import our utility modules
 from utils.report_builder import build_report
-from utils.duckdb_manager import save_report
+from utils.duckdb_manager import save_report, check_sql_uniqueness
 from utils.json_store import load_metadata, append_report_to_metadata
 
 # Configure logging
@@ -91,7 +92,7 @@ Be precise with report logic and handle edge cases gracefully."""
             logger.error(f"Failed to initialize ReportAgent: {e}")
             raise
 
-    def process_report_request(self, structured_input: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_report_request(self, structured_input: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process report request and generate report
         
@@ -159,8 +160,8 @@ Be precise with report logic and handle edge cases gracefully."""
                 "generation_time": datetime_context.get("now", "unknown")
             }
             
-            # Auto-save report (using temp_report as fallback name)
-            self._save_report_automatically(report_output, doc_id)
+            # Auto-save report with intelligent classification
+            await self._save_report_automatically(report_output, doc_id)
             
             logger.info(f"ReportAgent completed successfully for doc_id: {doc_id}")
             return report_output
@@ -304,44 +305,77 @@ Be precise with report logic and handle edge cases gracefully."""
                 "summary": "Report building failed"
             }
 
-    def _save_report_automatically(self, report_result: Dict[str, Any], doc_id: str):
+    async def _save_report_automatically(self, report_result: Dict[str, Any], doc_id: str):
         """
-        Automatically save report using temp_report as fallback name
+        Automatically save report with intelligent classification
         
         Args:
             report_result (Dict[str, Any]): Report results
             doc_id (str): Document identifier
         """
         try:
-            # Use temp_report as fallback name
-            report_name = report_result.get("report_name", "temp_report")
+            # Load document metadata for classification
+            doc_metadata = load_metadata(doc_id)
+            if not doc_metadata:
+                logger.error(f"No metadata found for doc_id: {doc_id}")
+                return
+                
+            # Extract document type information for intelligent classification
+            document_type = doc_metadata.get("document_type", "Unknown")
+            document_type_code = doc_metadata.get("document_type_code", "UNK")
+            sql_query = report_result.get("sql", "")
+            report_text = report_result.get("query_text", "")
             
-            # Save to DuckDB
+            # Check SQL uniqueness within document type
             conn = duckdb.connect("excel_reporting.db")
+            uniqueness_result = check_sql_uniqueness(conn, sql_query, document_type_code)
+            
+            # Generate intelligent report name based on uniqueness
+            if uniqueness_result["is_unique"]:
+                # Generate LLM name for unique reports
+                from app import generate_report_name_with_llm
+                naming_result = await generate_report_name_with_llm(
+                    sql_query, report_text, document_type, document_type_code
+                )
+                report_name = naming_result["report_name"]
+                description = naming_result["description"]
+            else:
+                # Use existing report name for duplicates
+                existing_report = uniqueness_result["existing_query"]
+                report_name = f"temp_report_{doc_id}_{int(time.time())}"
+                description = f"Local copy of: {existing_report['report_name']}"
+            
+            # Save report with intelligent classification
             save_success = save_report(
                 conn=conn,
                 doc_id=doc_id,
+                document_type=document_type,
+                document_type_code=document_type_code,
                 report_name=report_name,
-                sql=report_result.get("sql", ""),
+                sql=sql_query,
                 filters=report_result.get("filters", {}),
                 group_by=report_result.get("group_by", []),
                 format=report_result.get("format", "table"),
                 chart=report_result.get("chart", ""),
                 output_type=report_result.get("output_type", "html"),
-                description=report_result.get("summary", "Automatically generated report")
+                sql_hash=uniqueness_result["sql_hash"],
+                is_global=uniqueness_result["is_unique"],
+                tags=["auto_saved"],
+                description=description
             )
             conn.close()
             
             if save_success:
-                # Also append to JSON metadata
+                # Append to JSON metadata with summary
                 report_data = {
                     "report_name": report_name,
-                    "sql": report_result.get("sql", ""),
+                    "sql": sql_query,
                     "filters": report_result.get("filters", {}),
                     "group_by": report_result.get("group_by", []),
                     "format": report_result.get("format", "table"),
                     "chart": report_result.get("chart", ""),
                     "output_type": report_result.get("output_type", "html"),
+                    "summary": report_result.get("summary", ""),  # Include summary
                     "timestamp": report_result.get("generation_time", ""),
                     "auto_saved": True
                 }
@@ -351,7 +385,7 @@ Be precise with report logic and handle edge cases gracefully."""
                 logger.warning(f"Failed to auto-save report for doc_id: {doc_id}")
                 
         except Exception as e:
-            logger.error(f"Error auto-saving report: {e}")
+            logger.error(f"Error in intelligent report classification: {e}")
 
     def get_agent_info(self) -> Dict[str, Any]:
         """

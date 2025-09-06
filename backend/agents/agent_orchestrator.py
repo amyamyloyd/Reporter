@@ -89,7 +89,7 @@ class AgentOrchestrator:
                 if target_agent_name == "QueryAgent":
                     result = await target_agent.process_query_request(structured_input)
                 elif target_agent_name == "ReportAgent":
-                    result = target_agent.process_report_request(structured_input)
+                    result = await target_agent.process_report_request(structured_input)
                 elif target_agent_name == "UploadAgent":
                     result = target_agent.process_upload_request(structured_input)
                 elif target_agent_name == "MemoryAgent":

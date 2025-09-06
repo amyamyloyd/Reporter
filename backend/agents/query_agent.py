@@ -855,11 +855,12 @@ SQL Query:"""
             
             conn.close()
             
-            # Also append to JSON metadata
+            # Also append to JSON metadata with summary
             query_data = {
                 "query_name": query_name,
                 "query_text": query_text,
                 "sql": sql_query,
+                "summary": query_result.get("summary", ""),
                 "timestamp": query_result.get("execution_time", ""),
                 "auto_saved": True
             }

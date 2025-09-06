@@ -135,8 +135,18 @@ function AutoGenChat({ files, onAnalysisComplete }) {
                   if (agentData.rows && agentData.rows.length > 0) {
                     const columns = agentData.columns || [];
                     agentContent = `🔍 Query Results (${agentData.rows.length} found)`;
+                    
+                    // Add summary if available
+                    if (agentData.summary) {
+                      agentContent += `\n\n📝 Summary:\n${agentData.summary}`;
+                    }
                   } else {
                     agentContent = '🔍 No results found\n\nTry adjusting your search criteria or check if the data exists.';
+                    
+                    // Add summary even for no results
+                    if (agentData.summary) {
+                      agentContent += `\n\n📝 Summary:\n${agentData.summary}`;
+                    }
                   }
                 }
               }

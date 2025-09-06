@@ -107,11 +107,43 @@ async def view_tables():
         <html>
         <head>
             <title>AI Excel Reporting - Database Tables</title>
+            <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23007bff'%3E%3Cpath d='M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z'/%3E%3C/svg%3E">
             <style>
                 body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
                 .container { max-width: 1400px; margin: 0 auto; }
                 h1 { color: #333; text-align: center; margin-bottom: 30px; }
                 h2 { color: #666; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 0; }
+                
+                /* Refresh Button Styles */
+                .refresh-container {
+                    text-align: center;
+                    margin-bottom: 30px;
+                }
+                .refresh-btn {
+                    background-color: #28a745;
+                    color: white;
+                    padding: 12px 24px;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }
+                .refresh-btn:hover {
+                    background-color: #218838;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                }
+                .refresh-btn:active {
+                    transform: translateY(0);
+                }
+                .refresh-btn:disabled {
+                    background-color: #6c757d;
+                    cursor: not-allowed;
+                    transform: none;
+                }
                 
                 /* Grid Layout */
                 .grid-container { 
@@ -130,7 +162,33 @@ async def view_tables():
                 /* Table Styles */
                 table { width: 100%; border-collapse: collapse; margin: 0; }
                 th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; font-size: 14px; }
-                th { background-color: #f8f9fa; font-weight: bold; color: #333; }
+                th { 
+                    background-color: #f8f9fa; 
+                    font-weight: bold; 
+                    color: #333; 
+                    cursor: pointer;
+                    user-select: none;
+                    position: relative;
+                    transition: background-color 0.2s;
+                }
+                th:hover {
+                    background-color: #e9ecef;
+                }
+                th.sortable::after {
+                    content: ' ↕';
+                    opacity: 0.5;
+                    font-size: 12px;
+                }
+                th.sort-asc::after {
+                    content: ' ↑';
+                    opacity: 1;
+                    color: #007bff;
+                }
+                th.sort-desc::after {
+                    content: ' ↓';
+                    opacity: 1;
+                    color: #007bff;
+                }
                 tr:hover { background-color: #f5f5f5; }
                 .count { background-color: #e3f2fd; padding: 3px 8px; border-radius: 3px; font-weight: bold; font-size: 12px; }
                 
@@ -509,11 +567,118 @@ async def view_tables():
                         button.disabled = false;
                     }
                 }
+                
+                /**
+                 * Refresh the page to reload all table data
+                 */
+                function refreshPage() {
+                    const button = document.querySelector('.refresh-btn');
+                    const originalText = button.innerHTML;
+                    
+                    // Show loading state
+                    button.innerHTML = '⏳ Refreshing...';
+                    button.disabled = true;
+                    
+                    // Reload the page after a short delay to show the loading state
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
+                }
+                
+                /**
+                 * Make tables sortable
+                 * This function should be called after the page loads
+                 */
+                function makeTablesSortable() {
+                    // Find all tables on the page
+                    const tables = document.querySelectorAll('table');
+                    
+                    tables.forEach(table => {
+                        const headers = table.querySelectorAll('th');
+                        
+                        headers.forEach((header, index) => {
+                            // Skip action columns (they shouldn't be sortable)
+                            if (header.textContent.includes('Actions') || 
+                                header.textContent.includes('Delete') ||
+                                header.textContent.includes('Download')) {
+                                return;
+                            }
+                            
+                            // Add sortable class and click handler
+                            header.classList.add('sortable');
+                            header.addEventListener('click', () => sortTable(table, index));
+                        });
+                    });
+                }
+                
+                /**
+                 * Sort a table by the specified column
+                 * @param {HTMLTableElement} table - The table to sort
+                 * @param {number} columnIndex - The index of the column to sort by
+                 */
+                function sortTable(table, columnIndex) {
+                    const tbody = table.querySelector('tbody');
+                    if (!tbody) return;
+                    
+                    const rows = Array.from(tbody.querySelectorAll('tr'));
+                    const header = table.querySelectorAll('th')[columnIndex];
+                    
+                    // Determine sort direction
+                    const isAscending = !header.classList.contains('sort-asc');
+                    
+                    // Clear all sort classes from this table's headers
+                    table.querySelectorAll('th').forEach(th => {
+                        th.classList.remove('sort-asc', 'sort-desc');
+                    });
+                    
+                    // Set the current header's sort class
+                    header.classList.add(isAscending ? 'sort-asc' : 'sort-desc');
+                    
+                    // Sort rows
+                    rows.sort((a, b) => {
+                        const aCell = a.cells[columnIndex];
+                        const bCell = b.cells[columnIndex];
+                        
+                        if (!aCell || !bCell) return 0;
+                        
+                        const aText = aCell.textContent.trim();
+                        const bText = bCell.textContent.trim();
+                        
+                        // Try to parse as numbers first
+                        const aNum = parseFloat(aText);
+                        const bNum = parseFloat(bText);
+                        
+                        let comparison = 0;
+                        
+                        if (!isNaN(aNum) && !isNaN(bNum)) {
+                            // Both are numbers
+                            comparison = aNum - bNum;
+                        } else {
+                            // Compare as strings
+                            comparison = aText.localeCompare(bText);
+                        }
+                        
+                        return isAscending ? comparison : -comparison;
+                    });
+                    
+                    // Re-append sorted rows
+                    rows.forEach(row => tbody.appendChild(row));
+                }
+                
+                // Initialize sorting when page loads
+                document.addEventListener('DOMContentLoaded', makeTablesSortable);
             </script>
         </head>
         <body>
             <div class="container">
                 <h1>🗄️ AI Excel Reporting - Database Overview</h1>
+                
+                <!-- Refresh Button -->
+                <div class="refresh-container">
+                    <button class="refresh-btn" onclick="refreshPage()">
+                        🔄 Refresh Tables
+                    </button>
+                </div>
                 
                 <!-- Top Row: Document Registry and Tables -->
                 <div class="grid-container">
@@ -1330,14 +1495,98 @@ async def upload_files(files: List[UploadFile] = File(...)):
                     print(f"✅ Document type match found: {document_type} ({document_type_code})")
                     print(f"✅ Fields matched: {', '.join(all_fields)}")
                 else:
-                    print(f"📝 No existing document type found - marking as New")
+                    print(f"📝 No existing document type found - calling LLM for classification")
                     print(f"📝 New fields: {', '.join(all_fields)}")
+                    
+                    # Call LLM directly for classification
+                    classification_result = await classify_document_with_llm(all_fields, file.filename)
+                    
+                    if classification_result["success"]:
+                        document_type = classification_result["classification"]["document_type"]
+                        document_type_code = classification_result["classification"]["document_type_code"]
+                        description = classification_result["classification"]["description"]
+                        
+                        print(f"✅ LLM Classification successful: {document_type} ({document_type_code})")
+                        
+                        # Update doc_registry immediately
+                        try:
+                            from duckdb_manager import add_new_document_type
+                            registry_updated = add_new_document_type(
+                                db_conn,
+                                document_type,
+                                document_type_code, 
+                                all_fields,
+                                True,  # reuse_regularly
+                                description
+                            )
+                            
+                            if registry_updated:
+                                print(f"✅ New document type '{document_type}' added to registry")
+                            else:
+                                print(f"⚠️ Failed to add document type to registry")
+                        except Exception as reg_e:
+                            print(f"⚠️ Registry update failed: {reg_e}")
+                    else:
+                        # FALLBACK: Use filename to create document type
+                        base_name = os.path.splitext(file.filename)[0]
+                        document_type = base_name.replace('_', ' ').replace('-', ' ').title()
+                        document_type_code = base_name.replace('_', '').replace('-', '').upper()[:5]
+                        description = f"Document type derived from filename: {file.filename}"
+                        
+                        print(f"⚠️ Using filename fallback: {document_type} ({document_type_code})")
+                        
+                        # Still update registry with filename-based classification
+                        try:
+                            from duckdb_manager import add_new_document_type
+                            registry_updated = add_new_document_type(
+                                db_conn,
+                                document_type,
+                                document_type_code,
+                                all_fields,
+                                True,
+                                description
+                            )
+                            
+                            if registry_updated:
+                                print(f"✅ Filename-based document type '{document_type}' added to registry")
+                            else:
+                                print(f"⚠️ Failed to add filename-based document type to registry")
+                        except Exception as reg_e:
+                            print(f"⚠️ Registry update failed: {reg_e}")
+                    
+                    is_new_document = True
                     
             except Exception as e:
                 print(f"⚠️ Error checking document registry: {e}")
-                print(f"📝 Falling back to New document type")
-                document_type = "New"
-                document_type_code = "new"
+                print(f"📝 Falling back to filename-based classification")
+                
+                # FALLBACK: Use filename to create document type
+                base_name = os.path.splitext(file.filename)[0]
+                document_type = base_name.replace('_', ' ').replace('-', ' ').title()
+                document_type_code = base_name.replace('_', '').replace('-', '').upper()[:5]
+                description = f"Document type derived from filename: {file.filename}"
+                
+                print(f"⚠️ Using filename fallback: {document_type} ({document_type_code})")
+                
+                # Still update registry with filename-based classification
+                try:
+                    from duckdb_manager import add_new_document_type
+                    registry_updated = add_new_document_type(
+                        db_conn,
+                        document_type,
+                        document_type_code,
+                        all_fields,
+                        True,
+                        description
+                    )
+                    
+                    if registry_updated:
+                        print(f"✅ Filename-based document type '{document_type}' added to registry")
+                    else:
+                        print(f"⚠️ Failed to add filename-based document type to registry")
+                except Exception as reg_e:
+                    print(f"⚠️ Registry update failed: {reg_e}")
+                
                 is_new_document = True
             
             # STEP 3.5: Manage document versioning
@@ -1376,8 +1625,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
                 "document_type": document_type,  # Use determined document type
                 "document_type_code": document_type_code,  # Use determined document type code
                 "version": version,  # Add version field from version management
-                "conversation_status": "completed" if document_type != "New" else "pending",
-                "ready_for_sql_agent": True if document_type != "New" else False
+                "conversation_status": "completed",  # Always completed since classification happens at upload
+                "ready_for_sql_agent": True  # Always ready since classification is done
             }
             
             # Save JSON file
@@ -1701,12 +1950,6 @@ async def chat_agent_conversation(request: Dict[str, Any]):
             },
             {
                 "step": 2,
-                "question": "What type of document is this? (e.g., General Ledger, Vendor Reference, Campaign Data) and please provide a brief description of its purpose",
-                "field": "document_type_and_description",
-                "next_step": 3
-            },
-            {
-                "step": 3,
                 "question": "Ready to complete analysis",
                 "field": "analysis_complete",
                 "next_step": "complete"
@@ -1731,146 +1974,6 @@ async def chat_agent_conversation(request: Dict[str, Any]):
                     }
                 
                 json_data[field_name] = True
-            elif field_name == "document_type_and_description":
-                # Use LLM classification instead of regex patterns
-                response_text = user_response.strip()
-                
-                try:
-                    # Call the new LLM classification endpoint
-                    from openai import OpenAI
-                    
-                    # Initialize OpenAI client
-                    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-                    
-                    # Create system prompt for document classification
-                    system_prompt = """You are an expert document classifier for business data files.
-
-Your task is to analyze a user's description of a document and determine:
-1. A professional, clear document type name
-2. A unique, short code (3-5 characters) for the document type
-3. A concise description of the document's purpose
-
-Guidelines:
-- Document type names should be professional and descriptive (e.g., "Weekly Sales Report", "General Ledger", "Vendor Reference")
-- Codes must be unique and memorable (e.g., "WSR", "GL", "VR")
-- Descriptions should be 1-2 sentences explaining the document's business purpose
-- Be specific but not overly verbose
-
-Return your response as valid JSON with these exact fields:
-{
-  "document_type": "Professional Document Type Name",
-  "document_type_code": "XXX",
-  "description": "Clear description of the document's purpose and use case"
-}"""
-
-                    # Create user prompt
-                    user_prompt = f"""Please classify this document based on the user's description:
-
-User Description: "{response_text}"
-
-Analyze the description and provide a professional document classification."""
-
-                    # Call OpenAI API
-                    response = client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        max_tokens=200,
-                        temperature=0.1
-                    )
-                    
-                    # Extract response content
-                    ai_response = response.choices[0].message.content.strip()
-                    
-                    # Parse JSON response
-                    try:
-                        classification = json.loads(ai_response)
-                        
-                        # Validate required fields
-                        required_fields = ["document_type", "document_type_code", "description"]
-                        for field in required_fields:
-                            if field not in classification:
-                                raise ValueError(f"Missing required field: {field}")
-                        
-                        # Store AI classification results
-                        document_type = classification["document_type"]
-                        document_type_code = classification["document_type_code"]
-                        ai_description = classification["description"]
-                        
-                        json_data["document_type"] = document_type
-                        json_data["document_type_code"] = document_type_code
-                        json_data["ai_description"] = ai_description
-                        json_data["user_description"] = response_text
-                        json_data["ready_for_duckdb"] = True
-                        
-                        print(f"✅ AI Classification successful: {document_type} ({document_type_code})")
-                        
-                        # Update document registry with the new document type
-                        try:
-                            from duckdb_manager import add_new_document_type
-                            conn = create_persistent_database()
-                            
-                            # Get the original fields from the JSON (for registry matching)
-                            all_fields = json_data.get('fields', [])
-                            
-                            registry_updated = add_new_document_type(
-                                conn,
-                                document_type,
-                                document_type_code,
-                                all_fields,  # Use original field names for registry matching
-                                True,  # reuse_regularly = True (assume all are reusable)
-                                ai_description  # Use AI-generated description
-                            )
-                            
-                            if registry_updated:
-                                print(f"✅ Document type '{document_type}' added to registry")
-                            else:
-                                print(f"⚠️  Failed to add document type to registry")
-                                
-                            conn.close()
-                            
-                        except Exception as e:
-                            print(f"⚠️  Registry update failed: {e}")
-                            # Continue even if registry update fails
-                        
-                    except json.JSONDecodeError as e:
-                        print(f"❌ Failed to parse AI response as JSON: {e}")
-                        print(f"AI Response: {ai_response}")
-                        
-                        # Fallback: create basic classification
-                        words = response_text.split()
-                        if len(words) >= 2:
-                            fallback_type = ' '.join(words[:2]).strip()
-                        else:
-                            fallback_type = response_text[:50].strip()
-                        
-                        fallback_code = fallback_type.replace(' ', '').upper()[:5]
-                        
-                        json_data["document_type"] = fallback_type
-                        json_data["document_type_code"] = fallback_code
-                        json_data["ai_description"] = f"Document classified as {fallback_type} based on user description"
-                        json_data["user_description"] = response_text
-                        json_data["ready_for_duckdb"] = True
-                        
-                        print(f"⚠️  Using fallback classification: {fallback_type} ({fallback_code})")
-                        
-                except Exception as e:
-                    print(f"❌ LLM classification failed: {e}")
-                    
-                    # Ultimate fallback
-                    fallback_type = "Unknown Document Type"
-                    fallback_code = "UNK"
-                    
-                    json_data["document_type"] = fallback_type
-                    json_data["document_type_code"] = fallback_code
-                    json_data["ai_description"] = "Document classification failed - using fallback"
-                    json_data["user_description"] = response_text
-                    json_data["ready_for_duckdb"] = True
-                    
-                    print(f"⚠️  Using ultimate fallback: {fallback_type} ({fallback_code})")
-                
             elif field_name == "analysis_complete":
                 json_data[field_name] = True
                 json_data["ready_for_sql_agent"] = True
@@ -1887,14 +1990,6 @@ Analyze the description and provide a professional document classification."""
                 "timestamp": datetime.now().isoformat()
             }
             
-            # Add LLM response if this was a document classification step
-            if field_name == "document_type_and_description":
-                if "ai_description" in json_data:
-                    history_entry["llm_response"] = {
-                        "document_type": json_data.get("document_type"),
-                        "document_type_code": json_data.get("document_type_code"),
-                        "ai_description": json_data.get("ai_description")
-                    }
             
             json_data["conversation_history"].append(history_entry)
             
@@ -1918,21 +2013,9 @@ Analyze the description and provide a professional document classification."""
                 current_question = conversation_flow[1]["question"]
                 conversation_status = "in_progress"
             elif conversation_step == 2:
-                # After step 2, check if document classification is complete
-                if json_data.get('document_type') and json_data.get('document_type_code'):
-                    # Document classification is complete, show step 3
-                    next_step = 3
-                    current_question = f"Great! So this is a {json_data.get('document_type')} ({json_data.get('document_type_code')}) - ready to query, create a report, or do you have another file to upload? This document is being saved as {json_data.get('document_type')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json"
-                    conversation_status = "in_progress"
-                else:
-                    # Still waiting for document classification response
-                    next_step = 2
-                    current_question = "Please provide a description of what type of document this is."
-                    conversation_status = "waiting_for_input"
-            elif conversation_step == 3:
-                # After step 3, show completion message
+                # After step 2, show completion message
                 next_step = "complete"
-                current_question = f"Perfect! I've classified this as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). This document is being saved as {json_data.get('document_type', 'document')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json. The document is now ready for DuckDB processing and SQL queries."
+                current_question = f"Perfect! This document has been classified as a {json_data.get('document_type', 'document')} ({json_data.get('document_type_code', 'DOC')}). This document is being saved as {json_data.get('document_type', 'document')} @{json_data.get('filename', '').replace('.xlsx', '')}_{json_data.get('upload_timestamp', '')}.json. The document is now ready for DuckDB processing and SQL queries."
                 conversation_status = "completed"
                 json_data["analysis_complete"] = True
                 json_data["ready_for_duckdb"] = True
@@ -2128,6 +2211,153 @@ Analyze the description and provide a professional document classification."""
     except Exception as e:
         print(f"❌ Document classification failed: {e}")
         raise HTTPException(status_code=500, detail=f"Document classification failed: {str(e)}")
+
+async def classify_document_with_llm(fields: List[str], filename: str) -> Dict[str, Any]:
+    """
+    Classify document type using OpenAI LLM based on field names and filename
+    
+    This function analyzes the field names and filename to determine:
+    - Professional document type name (WITHOUT dates/periods)
+    - Unique document type code  
+    - Description of purpose
+    
+    Args:
+        fields: List of field names from Excel file
+        filename: Original filename for context
+        
+    Returns:
+        Dict with classification results or fallback to filename-based classification
+    """
+    try:
+        from openai import OpenAI
+        import os
+        import json
+        import re
+        
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # Create context from fields and filename
+        fields_context = ", ".join(fields)
+        base_name = os.path.splitext(filename)[0]  # Remove extension
+        
+        system_prompt = """You are an expert document classifier for business data files.
+
+Analyze the field names and filename to determine:
+1. A professional, clear document type name (WITHOUT dates/periods)
+2. A unique, short code (3-5 characters) for the document type  
+3. A concise description of the document's purpose
+
+CRITICAL RULES FOR DOCUMENT TYPE NAMES:
+- Remove ALL temporal information (dates, quarters, months, years)
+- Remove ALL version numbers and timestamps
+- Focus on the CORE document type, not the time period
+- Examples:
+  * "sales-report-q1" → "Sales Report" (not "Sales Report Q1")
+  * "vendors_2025-09-05_230247" → "Vendors" (not "Vendors 2025-09-05")
+  * "inventory-march-2025" → "Inventory" (not "Inventory March 2025")
+  * "financial-data-v2" → "Financial Data" (not "Financial Data V2")
+
+REASONING:
+- Document types should represent STRUCTURE, not TIME
+- Q1, Q2, Q3 reports have the same fields and can reuse queries
+- Weekly vendor updates have the same structure
+- Focus on what the document IS, not when it was created
+
+Guidelines:
+- Document type names should be professional and descriptive
+- Codes must be unique and memorable (e.g., "SALES", "VEND", "INV")
+- Descriptions should be 1-2 sentences explaining the document's business purpose
+- Base classification on field names, not filename
+
+Return your response as valid JSON with these exact fields:
+{
+  "document_type": "Professional Document Type Name (NO DATES/PERIODS)",
+  "document_type_code": "XXX", 
+  "description": "Clear description of the document's purpose and use case"
+}"""
+
+        user_prompt = f"""Please classify this document based on the field names and filename:
+
+Filename: {filename}
+Fields: {fields_context}
+
+IMPORTANT: Strip out ALL temporal information (dates, quarters, months, years, versions) from the document type name. Focus on the core document structure, not the time period.
+
+Examples of what I want:
+- "sales-report-q1" → "Sales Report" 
+- "vendors_2025-09-05_230247" → "Vendors"
+- "inventory-march-2025" → "Inventory"
+- "financial-data-v2" → "Financial Data"
+
+Analyze the fields and provide a professional document classification."""
+
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        ai_response = response.choices[0].message.content.strip()
+        classification = json.loads(ai_response)
+        
+        # Validate required fields
+        required_fields = ["document_type", "document_type_code", "description"]
+        for field in required_fields:
+            if field not in classification:
+                raise ValueError(f"Missing required field: {field}")
+        
+        return {
+            "success": True,
+            "classification": classification,
+            "ai_response": ai_response
+        }
+        
+    except Exception as e:
+        print(f"❌ LLM classification failed: {e}")
+        
+        # FALLBACK: Use filename to create document type (also strip temporal info)
+        base_name = os.path.splitext(filename)[0]
+        
+        # Remove common temporal patterns
+        temporal_patterns = [
+            r'_\d{4}-\d{2}-\d{2}_\d{6}',  # _2025-09-05_230247
+            r'_\d{8}_\d{6}',               # _20250905_230247
+            r'-\d{4}-\d{2}-\d{2}',        # -2025-09-05
+            r'-\d{8}',                     # -20250905
+            r'-q[1-4]',                    # -q1, -q2, -q3, -q4
+            r'-january|-february|-march|-april|-may|-june',  # -march
+            r'-july|-august|-september|-october|-november|-december',
+            r'-jan|-feb|-mar|-apr|-may|-jun',  # -mar
+            r'-jul|-aug|-sep|-oct|-nov|-dec',
+            r'-v\d+',                      # -v1, -v2, -v3
+            r'_\d{4}',                     # _2025
+            r'-\d{4}',                     # -2025
+        ]
+        
+        # Clean the base name
+        clean_name = base_name
+        for pattern in temporal_patterns:
+            clean_name = re.sub(pattern, '', clean_name, flags=re.IGNORECASE)
+        
+        # Create document type from cleaned name
+        document_type = clean_name.replace('_', ' ').replace('-', ' ').title()
+        document_type_code = clean_name.replace('_', '').replace('-', '').upper()[:5]
+        description = f"Document type derived from filename: {filename} (temporal info removed)"
+        
+        return {
+            "success": False,
+            "fallback": True,
+            "classification": {
+                "document_type": document_type,
+                "document_type_code": document_type_code,
+                "description": description
+            },
+            "error": str(e)
+        }
 
 @app.post("/save-analysis")
 async def save_analysis(analysis: Dict[str, Any]):

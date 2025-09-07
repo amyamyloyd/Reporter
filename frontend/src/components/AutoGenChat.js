@@ -266,6 +266,61 @@ function AutoGenChat({ files, onAnalysisComplete }) {
     }
   };
 
+  /**
+   * Handle file download using fetch + blob approach
+   * This prevents the browser from opening a new tab and ensures proper download
+   * 
+   * @param {string} url - Download URL from the backend
+   * @param {string} filename - Desired filename for the downloaded file
+   */
+  const handleDownloadFile = async (url, filename) => {
+    try {
+      // Show loading state (optional - could add a loading spinner)
+      console.log(`Starting download: ${filename}`);
+      
+      // Fetch the file from the backend
+      const response = await fetch(url);
+      
+      // Check if the request was successful
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+      }
+      
+      // Convert response to blob
+      const blob = await response.blob();
+      
+      // Create a temporary URL for the blob
+      const downloadUrl = window.URL.createObjectURL(blob);
+      
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename; // Set the filename
+      
+      // Append to DOM, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up the temporary URL
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      console.log(`Download completed: ${filename}`);
+      
+    } catch (error) {
+      console.error('Download failed:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = {
+        role: 'system',
+        content: `❌ Download failed: ${error.message}. Please try again or contact support.`,
+        timestamp: new Date().toISOString(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    }
+  };
+
   // Don't render if no files
   if (!files || !Array.isArray(files) || files.length === 0) {
     return (
@@ -395,14 +450,12 @@ function AutoGenChat({ files, onAnalysisComplete }) {
             {/* Download button for Excel files */}
             {msg.download_url && (
               <div className="mt-3 pt-3 border-t border-gray-200">
-                <a 
-                  href={msg.download_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button 
+                  onClick={() => handleDownloadFile(msg.download_url, msg.agent_data?.result_management?.excel_file?.filename || 'query_results.xlsx')}
                   className="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 transition-colors"
                 >
                   📥 Download Excel File
-                </a>
+                </button>
               </div>
             )}
           </div>

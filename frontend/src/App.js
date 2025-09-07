@@ -56,6 +56,7 @@ function App() {
   return (
     <div className="App">
       <MainLayout
+        showSuperMenu={true}
         agentPanel={
                   <AutoGenChat 
           files={uploadedFiles} 
@@ -120,7 +121,6 @@ function App() {
               </button>
             </div>
           )}
-
 
         </div>
       </MainLayout>

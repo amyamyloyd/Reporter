@@ -4263,6 +4263,493 @@ async def execute_report_endpoint(report_name: str):
         logger.error(f"Unexpected error in execute_report endpoint: {e}")
         raise HTTPException(status_code=500, detail=f"Report execution failed: {str(e)}")
 
+# ============================================================================
+# SUPERMENU ENDPOINTS - Phase 2 Implementation
+# ============================================================================
+
+@app.get("/queries")
+async def get_all_queries_endpoint():
+    """
+    Get all queries endpoint - Retrieve all saved queries for SuperMenu
+    
+    Returns all saved queries regardless of doc_id for the SuperMenu navigation.
+    Includes is_favorite field and other metadata for display.
+    """
+    try:
+        logger.info("Retrieving all saved queries for SuperMenu")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Get all queries with is_favorite field
+        queries_result = conn.execute("""
+            SELECT id, doc_id, document_type, document_type_code, query_name, 
+                   query_text, sql, sql_hash, is_global, tags, created_date, 
+                   last_used, use_count, description, is_favorite
+            FROM saved_queries 
+            ORDER BY last_used DESC NULLS LAST, created_date DESC
+        """).fetchall()
+        
+        # Convert to list of dictionaries
+        queries = []
+        for row in queries_result:
+            queries.append({
+                "id": row[0],
+                "doc_id": row[1],
+                "document_type": row[2],
+                "document_type_code": row[3],
+                "query_name": row[4],
+                "query_text": row[5],
+                "sql": row[6],
+                "sql_hash": row[7],
+                "is_global": bool(row[8]),
+                "tags": json.loads(row[9]) if row[9] else [],
+                "created_date": row[10].isoformat() if row[10] else None,
+                "last_used": row[11].isoformat() if row[11] else None,
+                "use_count": row[12] or 0,
+                "description": row[13],
+                "is_favorite": bool(row[14]) if row[14] is not None else False,
+                "is_current_version": True  # For now, all queries are current
+            })
+        
+        conn.close()
+        
+        logger.info(f"Retrieved {len(queries)} queries for SuperMenu")
+        return queries
+        
+    except Exception as e:
+        logger.error(f"Error retrieving all queries: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve queries: {str(e)}")
+
+@app.get("/reports")
+async def get_all_reports_endpoint():
+    """
+    Get all reports endpoint - Retrieve all saved reports for SuperMenu
+    
+    Returns all saved reports regardless of doc_id for the SuperMenu navigation.
+    Includes is_favorite field and other metadata for display.
+    """
+    try:
+        logger.info("Retrieving all saved reports for SuperMenu")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Get all reports with is_favorite field
+        reports_result = conn.execute("""
+            SELECT id, doc_id, document_type, document_type_code, report_name, 
+                   sql, sql_hash, is_global, filters, group_by, format, chart, 
+                   output_type, description, created_date, last_generated, 
+                   generation_count, is_favorite
+            FROM saved_reports 
+            ORDER BY last_generated DESC NULLS LAST, created_date DESC
+        """).fetchall()
+        
+        # Convert to list of dictionaries
+        reports = []
+        for row in reports_result:
+            reports.append({
+                "id": row[0],
+                "doc_id": row[1],
+                "document_type": row[2],
+                "document_type_code": row[3],
+                "report_name": row[4],
+                "sql": row[5],
+                "sql_hash": row[6],
+                "is_global": bool(row[7]),
+                "filters": json.loads(row[8]) if row[8] else {},
+                "group_by": json.loads(row[9]) if row[9] else [],
+                "format": row[10],
+                "chart": row[11],
+                "output_type": row[12],
+                "description": row[13],
+                "created_date": row[14].isoformat() if row[14] else None,
+                "last_generated": row[15].isoformat() if row[15] else None,
+                "generation_count": row[16] or 0,
+                "is_favorite": bool(row[17]) if row[17] is not None else False,
+                "is_current_version": True  # For now, all reports are current
+            })
+        
+        conn.close()
+        
+        logger.info(f"Retrieved {len(reports)} reports for SuperMenu")
+        return reports
+        
+    except Exception as e:
+        logger.error(f"Error retrieving all reports: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve reports: {str(e)}")
+
+@app.patch("/query/{query_id}")
+async def toggle_query_favorite_endpoint(query_id: int, request: Dict[str, Any]):
+    """
+    Toggle query favorite endpoint - Update is_favorite status for a query
+    
+    Updates the is_favorite field for a specific query by ID.
+    Used by SuperMenu for favorite management.
+    """
+    try:
+        # Validate query_id
+        if not query_id or query_id <= 0:
+            raise HTTPException(status_code=400, detail="Invalid query_id. Must be positive integer.")
+        
+        # Extract is_favorite from request
+        is_favorite = request.get("is_favorite")
+        if is_favorite is None:
+            raise HTTPException(status_code=400, detail="Missing required field: is_favorite")
+        
+        if not isinstance(is_favorite, bool):
+            raise HTTPException(status_code=400, detail="is_favorite must be boolean")
+        
+        logger.info(f"Toggling favorite for query ID {query_id} to {is_favorite}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if query exists
+        query_exists = conn.execute("""
+            SELECT COUNT(*) FROM saved_queries WHERE id = ?
+        """, [query_id]).fetchone()[0]
+        
+        if query_exists == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Query with ID {query_id} not found")
+        
+        # Update is_favorite field
+        conn.execute("""
+            UPDATE saved_queries 
+            SET is_favorite = ?
+            WHERE id = ?
+        """, [is_favorite, query_id])
+        
+        # Get updated query for response
+        updated_query = conn.execute("""
+            SELECT id, query_name, is_favorite, document_type
+            FROM saved_queries 
+            WHERE id = ?
+        """, [query_id]).fetchone()
+        
+        conn.close()
+        
+        logger.info(f"Successfully updated query {query_id} favorite status to {is_favorite}")
+        
+        return {
+            "success": True,
+            "message": f"Query favorite status updated successfully",
+            "query_id": query_id,
+            "query_name": updated_query[1],
+            "is_favorite": bool(updated_query[2]),
+            "document_type": updated_query[3]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling query favorite: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update query favorite: {str(e)}")
+
+@app.patch("/report/{report_id}")
+async def toggle_report_favorite_endpoint(report_id: int, request: Dict[str, Any]):
+    """
+    Toggle report favorite endpoint - Update is_favorite status for a report
+    
+    Updates the is_favorite field for a specific report by ID.
+    Used by SuperMenu for favorite management.
+    """
+    try:
+        # Validate report_id
+        if not report_id or report_id <= 0:
+            raise HTTPException(status_code=400, detail="Invalid report_id. Must be positive integer.")
+        
+        # Extract is_favorite from request
+        is_favorite = request.get("is_favorite")
+        if is_favorite is None:
+            raise HTTPException(status_code=400, detail="Missing required field: is_favorite")
+        
+        if not isinstance(is_favorite, bool):
+            raise HTTPException(status_code=400, detail="is_favorite must be boolean")
+        
+        logger.info(f"Toggling favorite for report ID {report_id} to {is_favorite}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Check if report exists
+        report_exists = conn.execute("""
+            SELECT COUNT(*) FROM saved_reports WHERE id = ?
+        """, [report_id]).fetchone()[0]
+        
+        if report_exists == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"Report with ID {report_id} not found")
+        
+        # Update is_favorite field
+        conn.execute("""
+            UPDATE saved_reports 
+            SET is_favorite = ?
+            WHERE id = ?
+        """, [is_favorite, report_id])
+        
+        # Get updated report for response
+        updated_report = conn.execute("""
+            SELECT id, report_name, is_favorite, document_type
+            FROM saved_reports 
+            WHERE id = ?
+        """, [report_id]).fetchone()
+        
+        conn.close()
+        
+        logger.info(f"Successfully updated report {report_id} favorite status to {is_favorite}")
+        
+        return {
+            "success": True,
+            "message": f"Report favorite status updated successfully",
+            "report_id": report_id,
+            "report_name": updated_report[1],
+            "is_favorite": bool(updated_report[2]),
+            "document_type": updated_report[3]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling report favorite: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update report favorite: {str(e)}")
+
+@app.post("/query/run")
+async def run_query_endpoint(request: Dict[str, Any]):
+    """
+    Run query endpoint - Execute saved query directly using SQL
+    
+    Executes a saved query by running its SQL directly through DuckDB.
+    Bypasses LLM for deterministic results. Used by SuperMenu for click-to-run.
+    """
+    try:
+        # Extract required fields from request
+        query_id = request.get("id")
+        query_name = request.get("query_name")
+        sql = request.get("sql")
+        doc_id = request.get("doc_id")
+        
+        # Validate required fields
+        if not sql:
+            raise HTTPException(status_code=400, detail="Missing required field: sql")
+        
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="Missing required field: doc_id")
+        
+        logger.info(f"Running query: {query_name or 'Unknown'} (ID: {query_id})")
+        
+        # Load document metadata to get correct table name
+        from utils.json_store import load_metadata
+        doc_metadata = load_metadata(doc_id)
+        if not doc_metadata:
+            raise HTTPException(status_code=404, detail=f"Document metadata not found for doc_id: {doc_id}")
+        
+        # Get DuckDB table name from metadata
+        duckdb_table_name = doc_metadata.get("duckdb_table_name")
+        if not duckdb_table_name:
+            raise HTTPException(status_code=400, detail=f"No DuckDB table found for doc_id: {doc_id}")
+        
+        logger.info(f"Using DuckDB table: {duckdb_table_name}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Fix SQL query to use correct table name
+        import re
+        corrected_sql = re.sub(r'FROM\s+\w+', f'FROM {duckdb_table_name}', sql, flags=re.IGNORECASE)
+        logger.info(f"Corrected SQL to use table: {duckdb_table_name}")
+        
+        # Execute the SQL query directly
+        try:
+            result = conn.execute(corrected_sql).fetchall()
+            columns = [desc[0] for desc in conn.description] if conn.description else []
+            
+            # Convert result to list of lists for JSON serialization
+            rows = [list(row) for row in result]
+            
+            # Update usage statistics if query_id provided
+            if query_id:
+                conn.execute("""
+                    UPDATE saved_queries 
+                    SET use_count = COALESCE(use_count, 0) + 1,
+                        last_used = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, [query_id])
+            
+            conn.close()
+            
+            # Use existing result management logic
+            # Create a temporary QueryAgent instance to access the method
+            from agents.query_agent import QueryAgent
+            temp_agent = QueryAgent()
+            result_management = await temp_agent._determine_result_management(
+                len(rows), rows, columns, doc_id, query_text
+            )
+            
+            logger.info(f"Query executed successfully: {len(rows)} rows returned")
+            
+            return {
+                "success": True,
+                "message": f"Query executed successfully",
+                "query_name": query_name,
+                "query_id": query_id,
+                "sql": corrected_sql,
+                "rows": rows,
+                "columns": columns,
+                "row_count": len(rows),
+                "result_management": result_management,
+                "execution_time": datetime.now().isoformat(),
+                "doc_id": doc_id,
+                "duckdb_table": duckdb_table_name
+            }
+            
+        except Exception as sql_error:
+            conn.close()
+            logger.error(f"SQL execution error: {sql_error}")
+            raise HTTPException(status_code=500, detail=f"Query execution failed: {str(sql_error)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running query: {e}")
+        raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+
+@app.post("/report/run")
+async def run_report_endpoint(request: Dict[str, Any]):
+    """
+    Run report endpoint - Execute saved report directly using config
+    
+    Executes a saved report by running its configuration directly.
+    Bypasses LLM for deterministic results. Used by SuperMenu for click-to-run.
+    """
+    try:
+        # Extract required fields from request
+        report_id = request.get("id")
+        report_name = request.get("report_name")
+        sql = request.get("sql")
+        doc_id = request.get("doc_id")
+        filters = request.get("filters", {})
+        group_by = request.get("group_by", [])
+        format_type = request.get("format", "table")
+        chart = request.get("chart", "")
+        output_type = request.get("output_type", "html")
+        
+        # Validate required fields
+        if not sql:
+            raise HTTPException(status_code=400, detail="Missing required field: sql")
+        
+        if not doc_id:
+            raise HTTPException(status_code=400, detail="Missing required field: doc_id")
+        
+        logger.info(f"Running report: {report_name or 'Unknown'} (ID: {report_id})")
+        
+        # Load document metadata to get correct table name
+        from utils.json_store import load_metadata
+        doc_metadata = load_metadata(doc_id)
+        if not doc_metadata:
+            raise HTTPException(status_code=404, detail=f"Document metadata not found for doc_id: {doc_id}")
+        
+        # Get DuckDB table name from metadata
+        duckdb_table_name = doc_metadata.get("duckdb_table_name")
+        if not duckdb_table_name:
+            raise HTTPException(status_code=400, detail=f"No DuckDB table found for doc_id: {doc_id}")
+        
+        logger.info(f"Using DuckDB table: {duckdb_table_name}")
+        
+        # Ensure all required tables exist
+        ensure_all_tables_exist()
+        
+        # Create database connection
+        conn = create_persistent_database()
+        
+        # Fix SQL query to use correct table name
+        import re
+        corrected_sql = re.sub(r'FROM\s+\w+', f'FROM {duckdb_table_name}', sql, flags=re.IGNORECASE)
+        logger.info(f"Corrected SQL to use table: {duckdb_table_name}")
+        
+        # Execute the SQL query directly
+        try:
+            result = conn.execute(corrected_sql).fetchall()
+            columns = [desc[0] for desc in conn.description] if conn.description else []
+            
+            # Convert result to list of lists for JSON serialization
+            rows = [list(row) for row in result]
+            
+            # Update usage statistics if report_id provided
+            if report_id:
+                conn.execute("""
+                    UPDATE saved_reports 
+                    SET generation_count = COALESCE(generation_count, 0) + 1,
+                        last_generated = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, [report_id])
+            
+            conn.close()
+            
+            # Use existing report building logic
+            from utils.report_builder import build_report
+            
+            # Build report using existing logic
+            report_result = build_report(
+                rows=rows,
+                columns=columns,
+                report_name=report_name or "Generated Report",
+                format_type=format_type,
+                chart_type=chart,
+                output_type=output_type,
+                filters=filters,
+                group_by=group_by
+            )
+            
+            logger.info(f"Report executed successfully: {len(rows)} rows returned")
+            
+            return {
+                "success": True,
+                "message": f"Report executed successfully",
+                "report_name": report_name,
+                "report_id": report_id,
+                "sql": corrected_sql,
+                "rows": rows,
+                "columns": columns,
+                "row_count": len(rows),
+                "format": format_type,
+                "chart": chart,
+                "output_type": output_type,
+                "filters": filters,
+                "group_by": group_by,
+                "report_result": report_result,
+                "execution_time": datetime.now().isoformat(),
+                "doc_id": doc_id,
+                "duckdb_table": duckdb_table_name
+            }
+            
+        except Exception as sql_error:
+            conn.close()
+            logger.error(f"SQL execution error: {sql_error}")
+            raise HTTPException(status_code=500, detail=f"Report execution failed: {str(sql_error)}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running report: {e}")
+        raise HTTPException(status_code=500, detail=f"Report execution failed: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -176,7 +176,15 @@ Be precise with SQL syntax and handle edge cases gracefully."""
             
             # Determine result management strategy
             row_count = len(execution_result["rows"])
-            result_management = self._determine_result_management(row_count, execution_result["rows"], execution_result["columns"], doc_id, query_text)
+            
+            # Get document type information for LLM context
+            document_type = metadata.get("document_type", "Unknown")
+            document_type_code = metadata.get("document_type_code", "UNK")
+            
+            result_management = await self._determine_result_management(
+                row_count, execution_result["rows"], execution_result["columns"], 
+                doc_id, query_text, sql_query, document_type, document_type_code
+            )
             
             # Prepare final result
             query_result = {
@@ -193,6 +201,10 @@ Be precise with SQL syntax and handle edge cases gracefully."""
             
             # Auto-save query with intelligent classification
             await self._save_query_automatically(query_result, doc_id)
+            
+            # Save Excel export metadata if Excel file was generated
+            if "excel_file" in result_management:
+                await self._save_excel_export_metadata(result_management["excel_file"], doc_id)
             
             logger.info(f"QueryAgent completed successfully for doc_id: {doc_id}")
             return query_result
@@ -329,7 +341,8 @@ Be precise with SQL syntax and handle edge cases gracefully."""
         logger.info(f"No ambiguous patterns matched for: '{query_lower}'")
         return False
 
-    def _determine_result_management(self, row_count: int, rows: List, columns: List[str], doc_id: str, query_text: str) -> Dict[str, Any]:
+    async def _determine_result_management(self, row_count: int, rows: List, columns: List[str], doc_id: str, query_text: str, 
+                                         sql_query: str = "", document_type: str = "", document_type_code: str = "") -> Dict[str, Any]:
         """
         Determine how to handle query results based on row count
         
@@ -353,7 +366,8 @@ Be precise with SQL syntax and handle edge cases gracefully."""
                 }
             else:
                 # Large result set - generate Excel file
-                excel_file = self._generate_excel_file(rows, columns, doc_id, query_text)
+                excel_file = await self._generate_excel_file(rows, columns, doc_id, query_text, 
+                                                           sql_query, document_type, document_type_code)
                 return {
                     "strategy": "excel_download",
                     "row_count": row_count,
@@ -370,49 +384,106 @@ Be precise with SQL syntax and handle edge cases gracefully."""
                 "error": str(e)
             }
 
-    def _generate_excel_file(self, rows: List, columns: List[str], doc_id: str, query_text: str) -> Dict[str, Any]:
+    async def _generate_excel_file(self, rows: List, columns: List[str], doc_id: str, query_text: str, 
+                           sql_query: str = "", document_type: str = "", document_type_code: str = "") -> Dict[str, Any]:
         """
-        Generate Excel file for large result sets
+        Generate Excel file for large result sets with LLM-generated semantic filenames
+        
+        This method creates Excel exports with intelligent, URL-safe filenames generated
+        by LLM analysis of the query content. It includes comprehensive error handling
+        and fallback strategies for filename generation failures.
         
         Args:
             rows (List): Query result rows
             columns (List[str]): Column names
             doc_id (str): Document ID
             query_text (str): Original query text
+            sql_query (str): Generated SQL query for LLM context
+            document_type (str): Document type for LLM context
+            document_type_code (str): Document type code for LLM context
             
         Returns:
-            Dict[str, Any]: Excel file information
+            Dict[str, Any]: Enhanced Excel file information with metadata:
+            - filename: LLM-generated or fallback filename
+            - filepath: Full file system path
+            - download_url: URL-safe download link
+            - row_count: Number of data rows
+            - column_count: Number of columns
+            - file_size_bytes: File size in bytes
+            - generated_at: ISO timestamp of generation
+            - export_type: Type of export (query_results)
+            - llm_generated: Boolean indicating if LLM was used
+            - error: Error message if generation failed
         """
         try:
             import pandas as pd
             from datetime import datetime
             import os
+            from utils.filename_validator import validate_excel_filename, sanitize_filename
             
-            # Create DataFrame
+            # Create DataFrame from query results
             df = pd.DataFrame(rows, columns=columns)
             
-            # Generate filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe_query = "".join(c for c in query_text[:30] if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            filename = f"query_results_{safe_query}_{timestamp}.xlsx"
+            # Generate LLM-based filename with comprehensive error handling
+            filename_result = await self._generate_excel_filename_with_llm(
+                sql_query, query_text, document_type, document_type_code
+            )
+            
+            # Extract filename from LLM result or use fallback
+            if filename_result.get("success") and filename_result.get("filename"):
+                filename = filename_result["filename"]
+                llm_generated = True
+                logger.info(f"Using LLM-generated filename: {filename}")
+            else:
+                # Fallback to simple pattern-based naming
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                safe_query = "".join(c for c in query_text[:30] if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                filename = f"query_export_{safe_query}_{timestamp}.xlsx"
+                llm_generated = False
+                logger.warning(f"Using fallback filename: {filename}")
+            
+            # Validate filename meets all requirements
+            validation_result = validate_excel_filename(filename)
+            if not validation_result["is_valid"]:
+                logger.warning(f"Filename validation failed: {validation_result['errors']}")
+                # Use sanitized version if validation fails
+                filename = validation_result["sanitized"] or sanitize_filename(filename)
+                logger.info(f"Using sanitized filename: {filename}")
             
             # Create output directory if it doesn't exist
             output_dir = "stored_queries/excel_exports"
             os.makedirs(output_dir, exist_ok=True)
             
-            # Save Excel file
+            # Save Excel file with proper error handling
             filepath = os.path.join(output_dir, filename)
             df.to_excel(filepath, index=False, engine='openpyxl')
             
-            logger.info(f"Generated Excel file: {filepath}")
+            # Get file size for metadata
+            file_size = os.path.getsize(filepath)
             
-            return {
+            # Generate download URL with proper encoding for special characters
+            from urllib.parse import quote
+            encoded_filename = quote(filename, safe='')
+            download_url = f"/download-excel/{encoded_filename}"
+            
+            # Create comprehensive metadata
+            excel_metadata = {
                 "filename": filename,
                 "filepath": filepath,
-                "download_url": f"/download-excel/{filename}",
+                "download_url": download_url,
                 "row_count": len(rows),
-                "column_count": len(columns)
+                "column_count": len(columns),
+                "file_size_bytes": file_size,
+                "generated_at": datetime.now().isoformat() + "Z",
+                "export_type": "query_results",
+                "llm_generated": llm_generated,
+                "document_type": document_type,
+                "document_type_code": document_type_code
             }
+            
+            logger.info(f"Successfully generated Excel file: {filepath} ({file_size} bytes)")
+            
+            return excel_metadata
             
         except Exception as e:
             logger.error(f"Error generating Excel file: {e}")
@@ -420,7 +491,65 @@ Be precise with SQL syntax and handle edge cases gracefully."""
                 "error": str(e),
                 "filename": None,
                 "filepath": None,
-                "download_url": None
+                "download_url": None,
+                "row_count": 0,
+                "column_count": 0,
+                "file_size_bytes": 0,
+                "generated_at": None,
+                "export_type": "query_results",
+                "llm_generated": False
+            }
+
+    async def _generate_excel_filename_with_llm(self, sql_query: str, query_text: str, 
+                                        document_type: str, document_type_code: str) -> Dict[str, Any]:
+        """
+        Generate Excel filename using LLM with comprehensive error handling
+        
+        This method calls the enhanced LLM naming function specifically for Excel exports,
+        providing proper context and handling all potential failure scenarios gracefully.
+        
+        Args:
+            sql_query (str): Generated SQL query for LLM analysis
+            query_text (str): Original natural language query
+            document_type (str): Document type for context
+            document_type_code (str): Document type code for context
+            
+        Returns:
+            Dict[str, Any]: LLM result with filename and metadata:
+            - success: Boolean indicating if LLM generation succeeded
+            - filename: Generated filename (if successful)
+            - download_url: Download URL (if successful)
+            - description: Business description of the query
+            - error: Error message if generation failed
+            - fallback: Boolean indicating if fallback was used
+        """
+        try:
+            # Import the enhanced LLM naming function
+            from app import generate_query_name_with_llm
+            
+            # Call LLM with Excel export type
+            result = await generate_query_name_with_llm(
+                sql=sql_query,
+                query_text=query_text,
+                document_type=document_type,
+                document_type_code=document_type_code,
+                export_type="excel_export"
+            )
+            
+            # Log the result for debugging
+            if result.get("success"):
+                logger.info(f"LLM generated Excel filename: {result.get('filename')}")
+            else:
+                logger.warning(f"LLM filename generation failed: {result.get('error')}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in LLM filename generation: {str(e)}")
+            return {
+                "success": False,
+                "error": f"LLM filename generation failed: {str(e)}",
+                "fallback": True
             }
 
     def _generate_sql_with_context(self, clarification: str, context: Dict[str, Any], datetime_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -864,10 +993,62 @@ SQL Query:"""
                 "timestamp": query_result.get("execution_time", ""),
                 "auto_saved": True
             }
+            
             append_query_to_metadata(doc_id, query_data)
                 
         except Exception as e:
             logger.error(f"Error in intelligent query classification: {e}")
+
+    async def _save_excel_export_metadata(self, excel_file_data: Dict[str, Any], doc_id: str):
+        """
+        Save Excel export metadata to document JSON
+        
+        This method handles the persistence of Excel export metadata separately
+        from query classification, ensuring clean separation of concerns.
+        
+        Args:
+            excel_file_data (Dict[str, Any]): Excel file metadata from _generate_excel_file()
+            doc_id (str): Document identifier
+        """
+        try:
+            from utils.json_store import append_query_to_metadata
+            
+            # Create Excel export metadata structure
+            excel_export_data = {
+                "filename": excel_file_data.get("filename"),
+                "download_url": excel_file_data.get("download_url"),
+                "filepath": excel_file_data.get("filepath"),
+                "row_count": excel_file_data.get("row_count"),
+                "column_count": excel_file_data.get("column_count"),
+                "generated_at": excel_file_data.get("generated_at"),
+                "file_size_bytes": excel_file_data.get("file_size_bytes"),
+                "export_type": excel_file_data.get("export_type", "query_results"),
+                "llm_generated": excel_file_data.get("llm_generated", False),
+                "document_type": excel_file_data.get("document_type"),
+                "document_type_code": excel_file_data.get("document_type_code")
+            }
+            
+            # Create query data with Excel export metadata
+            query_data = {
+                "query_name": f"Excel Export: {excel_file_data.get('filename', 'Unknown')}",
+                "query_text": "Excel export generated",
+                "sql": "Excel export",
+                "summary": f"Generated Excel file with {excel_file_data.get('row_count', 0)} rows",
+                "timestamp": excel_file_data.get("generated_at", ""),
+                "auto_saved": True,
+                "excel_export": excel_export_data
+            }
+            
+            # Save to document metadata
+            success = append_query_to_metadata(doc_id, query_data)
+            
+            if success:
+                logger.info(f"Successfully saved Excel export metadata: {excel_file_data.get('filename')}")
+            else:
+                logger.warning(f"Failed to save Excel export metadata: {excel_file_data.get('filename')}")
+                
+        except Exception as e:
+            logger.error(f"Error saving Excel export metadata: {str(e)}")
 
     def get_agent_info(self) -> Dict[str, Any]:
         """

@@ -106,14 +106,22 @@ def load_metadata(doc_id: str) -> Optional[Dict[str, Any]]:
 
 def append_query_to_metadata(doc_id: str, query_data: Dict[str, Any]) -> bool:
     """
-    Append query information to document metadata
+    Append query information to document metadata with Excel export tracking
     
     Adds query data to the document's metadata file, maintaining a history
-    of all queries performed on the document.
+    of all queries performed on the document. Now includes comprehensive
+    Excel export metadata when available.
     
     Args:
         doc_id (str): Document identifier
-        query_data (Dict[str, Any]): Query information to append
+        query_data (Dict[str, Any]): Query information to append, may include:
+            - query_name: Name of the query
+            - query_text: Original natural language query
+            - sql: Generated SQL query
+            - summary: Query result summary
+            - timestamp: Execution timestamp
+            - auto_saved: Boolean indicating if auto-saved
+            - excel_export: Excel export metadata (if generated)
         
     Returns:
         bool: True if append successful, False otherwise
@@ -123,8 +131,21 @@ def append_query_to_metadata(doc_id: str, query_data: Dict[str, Any]) -> bool:
             "hospital_ledger_fy2024_001",
             {
                 "query_name": "Quarterly Vendor Spend",
+                "query_text": "show me quarterly vendor spending",
                 "sql": "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Quarter = 'Q2'",
-                "timestamp": "2025-01-15T10:30:00"
+                "summary": "Found 45 vendors with total spend of $125,000",
+                "timestamp": "2025-01-15T10:30:00",
+                "auto_saved": True,
+                "excel_export": {
+                    "filename": "quarterly_vendor_spend_20250115_103000.xlsx",
+                    "download_url": "/download-excel/quarterly_vendor_spend_20250115_103000.xlsx",
+                    "filepath": "stored_queries/excel_exports/quarterly_vendor_spend_20250115_103000.xlsx",
+                    "row_count": 45,
+                    "column_count": 3,
+                    "generated_at": "2025-01-15T10:30:00Z",
+                    "file_size_bytes": 245760,
+                    "export_type": "query_results"
+                }
             }
         )
     """

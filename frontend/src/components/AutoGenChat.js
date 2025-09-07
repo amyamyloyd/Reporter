@@ -278,8 +278,12 @@ function AutoGenChat({ files, onAnalysisComplete }) {
       // Show loading state (optional - could add a loading spinner)
       console.log(`Starting download: ${filename}`);
       
+      // Convert relative URL to absolute URL if needed
+      const absoluteUrl = url.startsWith('http') ? url : `http://localhost:8000${url}`;
+      console.log(`Fetching from: ${absoluteUrl}`);
+      
       // Fetch the file from the backend
-      const response = await fetch(url);
+      const response = await fetch(absoluteUrl);
       
       // Check if the request was successful
       if (!response.ok) {

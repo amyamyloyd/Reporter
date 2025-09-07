@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Frontend Download Test</title>
+</head>
+<body>
+    <h1>Frontend Download Test</h1>
+    
+    <h2>Test the Download Function</h2>
+    <button onclick="testDownload()">Test Download</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        async function testDownload() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>Testing download...</p>';
+            
+            try {
+                const url = "http://localhost:8000/download-excel/cost_center_900_records_20250907_091828.xlsx";
+                const filename = "test_download_frontend.xlsx";
+                
+                console.log(`Starting download: ${filename}`);
+                
+                // Fetch the file from the backend
+                const response = await fetch(url);
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                // Check if the request was successful
+                if (!response.ok) {
+                    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+                }
+                
+                // Convert response to blob
+                const blob = await response.blob();
+                console.log('Blob size:', blob.size);
+                console.log('Blob type:', blob.type);
+                
+                // Create a temporary URL for the blob
+                const downloadUrl = window.URL.createObjectURL(blob);
+                
+                // Create a temporary anchor element to trigger download
+                const link = document.createElement('a');
+                link.href = downloadUrl;
+                link.download = filename; // Set the filename
+                
+                // Append to DOM, click, and remove
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Clean up the temporary URL
+                window.URL.revokeObjectURL(downloadUrl);
+                
+                console.log(`Download completed: ${filename}`);
+                resultDiv.innerHTML = '<p style="color: green;">✅ Download successful! Check your Downloads folder.</p>';
+                
+            } catch (error) {
+                console.error('Download failed:', error);
+                resultDiv.innerHTML = `<p style="color: red;">❌ Download failed: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -4599,7 +4599,7 @@ async def run_query_endpoint(request: Dict[str, Any]):
             from agents.query_agent import QueryAgent
             temp_agent = QueryAgent()
             result_management = await temp_agent._determine_result_management(
-                len(rows), rows, columns, doc_id, query_text
+                len(rows), rows, columns, doc_id, query_name or "Saved Query"
             )
             
             logger.info(f"Query executed successfully: {len(rows)} rows returned")

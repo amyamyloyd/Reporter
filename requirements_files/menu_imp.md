@@ -223,24 +223,24 @@ This document provides a detailed, trackable implementation plan for the SuperMe
 **File:** `frontend/src/components/layout/MainLayout.js`
 
 **Tasks:**
-- [ ] Implement `handleRunItem(item)` method
-- [ ] Call appropriate `/query/run` or `/report/run` endpoint
-- [ ] Forward results to AutoGenChat component
-- [ ] Handle loading and error states
+- [x] Implement `handleRunItem(item)` method
+- [x] Call appropriate `/query/run` or `/report/run` endpoint
+- [x] Forward results to AutoGenChat component
+- [x] Handle loading and error states
 
 **Result Integration:**
-- [ ] Use existing result display logic from AutoGenChat
-- [ ] Results appear exactly as they do today
-- [ ] ≤65 rows: HTML table display
-- [ ] >65 rows: Excel download trigger
-- [ ] No difference from existing Upload → Query → Result flow
+- [x] Use existing result display logic from AutoGenChat
+- [x] Results appear exactly as they do today
+- [x] ≤65 rows: HTML table display
+- [x] >65 rows: Excel download trigger
+- [x] No difference from existing Upload → Query → Result flow
 
 **Acceptance Criteria:**
-- [ ] Clicking items executes queries/reports
-- [ ] Results appear in chat area
-- [ ] Format matches existing behavior exactly
-- [ ] Excel downloads work for large results
-- [ ] User cannot tell difference from existing flow
+- [x] Clicking items executes queries/reports
+- [x] Results appear in chat area
+- [x] Format matches existing behavior exactly
+- [x] Excel downloads work for large results
+- [x] User cannot tell difference from existing flow
 
 ---
 
@@ -332,11 +332,13 @@ This document provides a detailed, trackable implementation plan for the SuperMe
 - [ ] No console errors
 
 ### Phase 2 Complete When:
-- [ ] Clicking items executes queries/reports
-- [ ] Results appear in chat area
-- [ ] Favorites persist in database
-- [ ] Loading and error states work
-- [ ] Results format matches existing behavior exactly
+- [x] Clicking items executes queries/reports
+- [x] Results appear in chat area
+- [x] Favorites persist in database
+- [x] Loading and error states work
+- [x] Results format matches existing behavior exactly
+
+**✅ PHASE 2 COMPLETE** - All SuperMenu click-to-run functionality working perfectly!
 
 ### Phase 3 Complete When:
 - [ ] Modal works for large lists

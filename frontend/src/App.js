@@ -3,7 +3,7 @@
  * Integrates file upload and agent chat components using proper MainLayout structure
  * Shows current progress and what's remaining in the 3-phase development plan
  */
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import MainLayout from './components/layout/MainLayout';
 import FileUploader from './components/FileUploader';
 import AutoGenChat from './components/AutoGenChat';
@@ -13,6 +13,9 @@ function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [analysisComplete, setAnalysisComplete] = useState(false);
   const [analysisResults, setAnalysisResults] = useState(null);
+  
+  // Ref for AutoGenChat component to enable external message injection
+  const autoGenChatRef = useRef(null);
 
   /**
    * Handle files uploaded from FileUploader
@@ -53,15 +56,35 @@ function App() {
     setAnalysisResults(null);
   };
 
+  /**
+   * Handle external messages from SuperMenu (query/report results)
+   * This allows MainLayout to inject results into AutoGenChat
+   */
+  const handleExternalMessage = useCallback(() => {
+    // Return the handler directly for MainLayout to use
+    // This creates a communication bridge between MainLayout and AutoGenChat
+    console.log('App: Providing handler to MainLayout');
+    return (message) => {
+      console.log('App: Forwarding message to AutoGenChat:', message);
+      // Forward to AutoGenChat via ref
+      if (autoGenChatRef.current) {
+        autoGenChatRef.current.addMessage(message);
+      }
+    };
+  }, []);
+
   return (
     <div className="App">
       <MainLayout
         showSuperMenu={true}
+        onExternalMessage={handleExternalMessage}
         agentPanel={
-                  <AutoGenChat 
-          files={uploadedFiles} 
-          onAnalysisComplete={handleAnalysisComplete}
-        />
+          <AutoGenChat 
+            ref={autoGenChatRef}
+            files={uploadedFiles} 
+            onAnalysisComplete={handleAnalysisComplete}
+            onExternalMessage={handleExternalMessage}
+          />
         }
       >
         {/* Left side: Content (40%) - File Upload and Management */}

@@ -2,8 +2,7 @@
  * AutoGenChat Component - Phase 3
  * Handles AI agent conversations using the new AutoGen agent system
  */
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 
 // Import apiClient
 import { apiClient } from '../api/client';
@@ -13,8 +12,9 @@ import { apiClient } from '../api/client';
  * @param {Object} props - Component props
  * @param {Array} props.files - Array of uploaded files
  * @param {Function} props.onAnalysisComplete - Callback when analysis is complete
+ * @param {Function} props.onExternalMessage - Callback to receive external messages from parent
  */
-function AutoGenChat({ files, onAnalysisComplete }) {
+const AutoGenChat = forwardRef(({ files, onAnalysisComplete, onExternalMessage }, ref) => {
   const [messages, setMessages] = useState([]);
   const [currentInput, setCurrentInput] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -22,16 +22,25 @@ function AutoGenChat({ files, onAnalysisComplete }) {
   const [error, setError] = useState('');
   
   // AutoGen conversation state
-  const [conversationActive, setConversationActive] = useState(false);
   const [currentDocId, setCurrentDocId] = useState('');
+  
+  // Ref to store the external message handler
+  const externalMessageHandlerRef = useRef(null);
+  
+  // Expose addMessage method to parent via ref
+  useImperativeHandle(ref, () => ({
+    addMessage: (message) => {
+      console.log('AutoGenChat: Adding message via ref:', message);
+      setMessages(prev => [...prev, message]);
+    }
+  }));
 
-  // Initialize conversation when files are available
+  // Initialize conversation - always show welcome message
   useEffect(() => {
     if (files && Array.isArray(files) && files.length > 0) {
       // Start with first file
       setCurrentFileIndex(0);
       setMessages([]);
-      setConversationActive(true);
       
       // Get doc_id from the first file
       const firstFile = files[0];
@@ -47,21 +56,41 @@ function AutoGenChat({ files, onAnalysisComplete }) {
       
       setMessages([welcomeMessage]);
     } else {
-      // Handle case where files is not an array or is empty
+      // Always show welcome message even without files - needed for SuperMenu
       setMessages([{
-        role: 'system',
-        content: 'No files available for analysis. Please upload files first.',
-        timestamp: new Date()
+        role: 'agent',
+        content: 'Hello! I\'m your AI assistant. I can help you with queries, reports, and analysis. Use the SuperMenu on the left to run saved queries and reports, or upload files to start a new analysis.',
+        timestamp: new Date().toISOString()
       }]);
-      setConversationActive(false);
     }
   }, [files]);
+
+  /**
+   * Handle external messages from parent component (e.g., SuperMenu query results)
+   * This allows MainLayout to inject query/report results into the chat
+   */
+  useEffect(() => {
+    if (onExternalMessage) {
+      // Create a stable message handler function
+      const messageHandler = (message) => {
+        console.log('AutoGenChat: Received external message:', message);
+        setMessages(prev => [...prev, message]);
+      };
+      
+      // Store the handler in the ref for stability
+      externalMessageHandlerRef.current = messageHandler;
+      
+      // Call the parent callback with the handler directly
+      console.log('AutoGenChat: Setting up external message handler');
+      onExternalMessage(messageHandler);
+    }
+  }, [onExternalMessage]); // Include onExternalMessage in dependencies
 
   /**
    * Send message to AutoGen agents and handle response
    */
   const sendMessage = async () => {
-    if (!currentInput.trim() || processing || !files || !Array.isArray(files) || files.length === 0) return;
+    if (!currentInput.trim() || processing) return;
     
     const userMessage = {
       role: 'user',
@@ -75,25 +104,36 @@ function AutoGenChat({ files, onAnalysisComplete }) {
     setError('');
     
     try {
-      // Get current file context
-      const currentFile = files[currentFileIndex];
-      const docId = currentFile.json_filename?.replace('.json', '') || currentFile.filename?.replace('.xlsx', '');
-      
-      // Prepare localStorage context
-      const localStorageContext = {
-        doc_id: docId,
-        schema: currentFile.fields || [],
-        record_count: currentFile.sheets?.Sheet1?.row_count || 0,
-        duckdb_table_name: currentFile.duckdb_table_name || docId,
-        metadata: currentFile.metadata || {},
-        recentUploads: files.map(f => ({
-          filename: f.filename || f.name,
-          json_filename: f.json_filename,
-          doc_type: f.doc_type || 'Unknown',
-          fields: f.fields || [],
-          upload_time: f.upload_time || new Date().toISOString()
-        }))
+      // Prepare localStorage context - handle both file and no-file scenarios
+      let localStorageContext = {
+        doc_id: '',
+        schema: [],
+        record_count: 0,
+        duckdb_table_name: '',
+        metadata: {},
+        recentUploads: []
       };
+      
+      // If files are available, use the current file context
+      if (files && Array.isArray(files) && files.length > 0) {
+        const currentFile = files[currentFileIndex];
+        const docId = currentFile.json_filename?.replace('.json', '') || currentFile.filename?.replace('.xlsx', '');
+        
+        localStorageContext = {
+          doc_id: docId,
+          schema: currentFile.fields || [],
+          record_count: currentFile.sheets?.Sheet1?.row_count || 0,
+          duckdb_table_name: currentFile.duckdb_table_name || docId,
+          metadata: currentFile.metadata || {},
+          recentUploads: files.map(f => ({
+            filename: f.filename || f.name,
+            json_filename: f.json_filename,
+            doc_type: f.doc_type || 'Unknown',
+            fields: f.fields || [],
+            upload_time: f.upload_time || new Date().toISOString()
+          }))
+        };
+      }
       
       // Call AutoGen chat endpoint
       const response = await apiClient.post('/autogen-chat', {
@@ -133,7 +173,6 @@ function AutoGenChat({ files, onAnalysisComplete }) {
                 } else {
                   // Small result set - display as HTML table
                   if (agentData.rows && agentData.rows.length > 0) {
-                    const columns = agentData.columns || [];
                     agentContent = `🔍 Query Results (${agentData.rows.length} found)`;
                     
                     // Add summary if available
@@ -326,17 +365,7 @@ function AutoGenChat({ files, onAnalysisComplete }) {
   };
 
   // Don't render if no files
-  if (!files || !Array.isArray(files) || files.length === 0) {
-    return (
-      <div className="flex flex-col h-full items-center justify-center text-gray-500">
-        <div className="text-center">
-          <div className="text-4xl mb-4">📁</div>
-          <p>No files uploaded yet</p>
-          <p className="text-sm">Upload Excel files to start analysis</p>
-        </div>
-      </div>
-    );
-  }
+  // Always render the agent interface - no early return needed
 
   return (
     <div className="flex flex-col h-full">
@@ -345,30 +374,40 @@ function AutoGenChat({ files, onAnalysisComplete }) {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-bold text-lg">AI Assistant (AutoGen)</h2>
-            <p className="text-sm text-gray-600">
-              File {currentFileIndex + 1} of {files.length}: {files[currentFileIndex]?.filename || files[currentFileIndex]?.name}
-            </p>
-            <p className="text-xs text-gray-500">
-              Doc ID: {currentDocId}
-            </p>
+            {files && Array.isArray(files) && files.length > 0 ? (
+              <>
+                <p className="text-sm text-gray-600">
+                  File {currentFileIndex + 1} of {files.length}: {files[currentFileIndex]?.filename || files[currentFileIndex]?.name}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Doc ID: {currentDocId}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-600">
+                Ready to help with queries and reports
+              </p>
+            )}
           </div>
           
-          <div className="flex space-x-2">
-            <button
-              onClick={switchToPreviousFile}
-              disabled={currentFileIndex === 0}
-              className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:bg-gray-300"
-            >
-              ← Previous
-            </button>
-            <button
-              onClick={switchToNextFile}
-              disabled={currentFileIndex === files.length - 1}
-              className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:bg-gray-300"
-            >
-              Next →
-            </button>
-          </div>
+          {files && Array.isArray(files) && files.length > 1 && (
+            <div className="flex space-x-2">
+              <button
+                onClick={switchToPreviousFile}
+                disabled={currentFileIndex === 0}
+                className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:bg-gray-300"
+              >
+                ← Previous
+              </button>
+              <button
+                onClick={switchToNextFile}
+                disabled={currentFileIndex === files.length - 1}
+                className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 disabled:bg-gray-300"
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
         
         {/* Progress indicator */}
@@ -510,6 +549,6 @@ function AutoGenChat({ files, onAnalysisComplete }) {
       </div>
     </div>
   );
-}
+});
 
 export default AutoGenChat;

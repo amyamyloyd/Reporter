@@ -4,7 +4,6 @@
  */
 import React, { useState, useEffect } from 'react';
 import QueryListSection from '../QueryListSection';
-import FileModelSelector from '../FileModelSelector';
 
 /**
  * MainLayout component that provides the 60/40 split layout with SuperMenu tabs
@@ -12,8 +11,9 @@ import FileModelSelector from '../FileModelSelector';
  * @param {React.ReactNode} props.children - Content for the left side (40%)
  * @param {React.ReactNode} props.agentPanel - Content for the right side (60% - LARGE REAL ESTATE)
  * @param {Boolean} props.showSuperMenu - Whether to show the SuperMenu tabs (default: false)
+ * @param {Function} props.onExternalMessage - Callback to receive external message handler from agentPanel
  */
-function MainLayout({ children, agentPanel, showSuperMenu = false }) {
+function MainLayout({ children, agentPanel, showSuperMenu = false, onExternalMessage }) {
   // Tab state management for SuperMenu
   const [activeTab, setActiveTab] = useState('ALL');
   
@@ -26,7 +26,9 @@ function MainLayout({ children, agentPanel, showSuperMenu = false }) {
   
   // Filter states
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [selectedDatasets, setSelectedDatasets] = useState([]);
+  
+  // External message handler for communicating with AutoGenChat
+  const [externalMessageHandler, setExternalMessageHandler] = useState(null);
   
   /**
    * Fetch queries and reports from backend
@@ -79,6 +81,23 @@ function MainLayout({ children, agentPanel, showSuperMenu = false }) {
   };
   
   /**
+   * Handle external message callback from AutoGenChat
+   * This allows us to inject query/report results into the chat
+   */
+  useEffect(() => {
+    if (onExternalMessage) {
+      console.log('MainLayout: Setting up external message communication');
+      // Call onExternalMessage to get the handler directly
+      const handler = onExternalMessage();
+      console.log('MainLayout: Received handler from AutoGenChat:', typeof handler);
+      setExternalMessageHandler(() => handler);
+      console.log('MainLayout: Handler stored successfully');
+    } else {
+      console.log('MainLayout: No onExternalMessage prop provided');
+    }
+  }, [onExternalMessage]);
+  
+  /**
    * Handle tab switching for SuperMenu
    * @param {String} tabName - Name of the tab to switch to
    */
@@ -90,6 +109,77 @@ function MainLayout({ children, agentPanel, showSuperMenu = false }) {
       fetchData();
     } else if (tabName === 'MODEL') {
       loadUploadedFiles();
+    }
+  };
+  
+  /**
+   * Format query/report result as a message for AutoGenChat
+   * @param {Object} item - The original item that was executed
+   * @param {Object} result - The execution result from backend
+   * @returns {Object} Formatted message object for AutoGenChat
+   */
+  const formatResultAsMessage = (item, result) => {
+    const itemName = item.query_name || item.report_name;
+    const itemType = item.query_name ? 'Query' : 'Report';
+    
+    // Debug the result structure
+    console.log('MainLayout: Formatting result for', itemName, ':', result);
+    console.log('MainLayout: Result.data:', result.data);
+    
+    // Check if this is a query result with data
+    // The SuperMenu query execution returns data directly, not under a 'data' property
+    if (item.query_name && (result.data || result.rows)) {
+      const { rows, columns, row_count } = result.data || result;
+      
+      if (row_count > 65) {
+        // Large result set - show download message
+        return {
+          role: 'agent',
+          content: `📊 Large Result Set (${row_count} records)\n\nYour query returned ${row_count} records. Since this is a large dataset, I've generated an Excel file for you.\n\n📥 Download Results: ${result.result_management?.excel_file?.filename || 'results.xlsx'}\n\n💡 Tip: For smaller result sets (≤65 records), results are displayed directly in the chat.`,
+          timestamp: new Date().toISOString(),
+          isQueryResult: true,
+          resultData: result,
+          download_url: result.result_management?.excel_file?.download_url || null
+        };
+      } else if (rows && rows.length > 0) {
+        // Small result set - display as table
+        return {
+          role: 'agent',
+          content: `🔍 ${itemType} Results: ${itemName} (${rows.length} found)`,
+          timestamp: new Date().toISOString(),
+          isQueryResult: true,
+          resultData: result,
+          tableData: {
+            columns: columns || [],
+            rows: rows
+          }
+        };
+      } else {
+        // No results
+        return {
+          role: 'agent',
+          content: `🔍 ${itemType} Results: ${itemName}\n\nNo results found\n\nTry adjusting your search criteria or check if the data exists.`,
+          timestamp: new Date().toISOString(),
+          isQueryResult: true,
+          resultData: result
+        };
+      }
+    } else if (item.report_name && result.data) {
+      // Report result
+      return {
+        role: 'agent',
+        content: `📊 Report Generated Successfully!\n\n${itemName}\n\n${result.data.summary || 'Your report has been created and is ready for download.'}\n\n📋 Format: ${result.data.format || 'table'}`,
+        timestamp: new Date().toISOString(),
+        isReportResult: true,
+        resultData: result.data
+      };
+    } else {
+      // Generic success message
+      return {
+        role: 'agent',
+        content: `✅ ${itemType} executed successfully: ${itemName}`,
+        timestamp: new Date().toISOString()
+      };
     }
   };
   
@@ -121,11 +211,31 @@ function MainLayout({ children, agentPanel, showSuperMenu = false }) {
       
       const result = await response.json();
       
-      // Forward result to agent panel (this will be implemented in Phase 2)
-      console.log('Execution result:', result);
+      // Forward result to AutoGenChat component
+      console.log('MainLayout: About to forward result:', { 
+        hasHandler: !!externalMessageHandler, 
+        success: result.success,
+        result: result
+      });
       
-      // TODO: Forward result to AutoGenChat component
-      // This will be implemented in the next step
+      if (externalMessageHandler && result.success) {
+        // Format the result as a message for AutoGenChat
+        const message = formatResultAsMessage(item, result);
+        console.log('MainLayout: Sending message to AutoGenChat:', message);
+        try {
+          externalMessageHandler(message);
+          console.log('MainLayout: Message sent successfully');
+        } catch (error) {
+          console.error('MainLayout: Error sending message:', error);
+        }
+      } else {
+        console.log('MainLayout: No externalMessageHandler or result not successful:', { 
+          hasHandler: !!externalMessageHandler, 
+          success: result.success 
+        });
+      }
+      
+      console.log('Execution result:', result);
       
     } catch (err) {
       console.error('Execution error:', err);
@@ -173,13 +283,6 @@ function MainLayout({ children, agentPanel, showSuperMenu = false }) {
     }
   };
   
-  /**
-   * Handle dataset selection change for MODEL tab
-   * @param {Array} datasets - Selected datasets
-   */
-  const handleSelectionChange = (datasets) => {
-    setSelectedDatasets(datasets);
-  };
   
   // Load data when SuperMenu is first shown
   useEffect(() => {

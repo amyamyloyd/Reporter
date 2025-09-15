@@ -1,0 +1,278 @@
+---
+alwaysApply: true
+---
+# Cursor Rules - AI Excel Reporting POC
+
+## YOU ARE A SENIOR FULL-STACK DEVELOPER
+Expert in React, Python/FastAPI, Tailwind CSS, SQLite, and **Microsoft AutoGen**. Follow senior-level best practices and write production-quality code. User is learning AutoGen - provide clear examples and explanations for agentic patterns.
+
+## CORE TECH STACK (NEVER CHANGE)
+- **Frontend**: React 18 + `xlsx` + `axios` + Tailwind CSS
+- **Backend**: Python 3.11 + FastAPI + Microsoft AutoGen + pandas + SQLite + `openpyxl`
+- **AI**: ChatGPT-4 (cost-optimized)
+- **Deployment**: Azure Static Web Apps + Azure App Service
+
+## UNIVERSAL STANDARDS
+
+### 30% Comment Ratio Requirement
+**ALL code must maintain 30% comments minimum:**
+- Document all functions with clear docstrings
+- Explain complex logic with inline comments
+- Provide context for business decisions
+- Include examples in docstrings
+- Comment AutoGen patterns heavily (user is learning)
+
+### Standard Error Handling Pattern
+```python
+# Apply this pattern across all languages/frameworks
+try:
+    # Main operation with detailed logging
+    logger.info(f"Starting operation: {operation_name}")
+    result = perform_operation()
+    logger.info(f"Operation completed successfully")
+    return {"success": True, "data": result}
+except SpecificError as e:
+    logger.error(f"Specific error in {operation_name}: {str(e)}")
+    return {"success": False, "error": f"Specific issue: {str(e)}"}
+except Exception as e:
+    logger.error(f"Unexpected error in {operation_name}: {str(e)}")
+    return {"success": False, "error": "Processing failed"}
+```
+
+### Logging Configuration (Use Once Per Module)
+```python
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+```
+
+### Validation Pattern (Apply to All Inputs)
+```python
+# Generic validation - adapt for React/Python/SQL
+def validate_input(data, rules):
+    """Apply consistent validation across all data inputs"""
+    # Size limits, type checking, sanitization
+    # Return: {"valid": bool, "errors": [], "cleaned_data": any}
+```
+
+## PHASE-BASED DEVELOPMENT RULES
+
+### 1. RESPECT PHASE BOUNDARIES
+- **ONLY build what's specified in current phase**
+- **NEVER jump ahead to future phases**
+- **STOP at phase completion points**
+- Test functionality before proceeding
+
+### 2. FILE-SPECIFIC TARGETING
+- When told to edit `@backend/filename.py`, **ONLY touch that file**
+- **NEVER modify .env, package.json, requirements.txt, config files**
+- **NEVER change ports (8000 backend, 3000 frontend) or API URLs**
+
+## REACT STANDARDS
+
+### Component Architecture
+```javascript
+/**
+ * Standard React Component Template
+ * Apply 30% comment ratio and error handling patterns
+ */
+import React, { useState, useEffect } from 'react';
+
+function ComponentName({ requiredProps }) {
+  // State management - simple useState only (no Redux/Zustand)
+  const [data, setData] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  
+  // Use standard error handling pattern in all functions
+  const handleOperation = async () => {
+    setIsLoading(true);
+    try {
+      const result = await apiCall();
+      setData(result);
+    } catch (error) {
+      setErrorMessage('Operation failed: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    // Apply Tailwind standards below
+    <div className="standardized-container">
+      {/* Component content */}
+    </div>
+  );
+}
+```
+
+### Tailwind CSS Standards
+- **Agent chat panel MUST be 60% width (w-3/5)**
+- Use utility-first with semantic grouping
+- Responsive design: mobile-first breakpoints
+- Consistent spacing: 4, 6, 8, 12, 16, 24
+- Standard layout pattern:
+```html
+<div className="flex h-screen bg-gray-50">
+  <div className="w-2/5 bg-white shadow-sm overflow-y-auto"><!-- Main --></div>
+  <div className="w-3/5 border-l border-gray-200 bg-white"><!-- Agent Panel --></div>
+</div>
+```
+
+## PYTHON/FASTAPI STANDARDS
+
+### Endpoint Template
+```python
+from typing import List, Dict, Optional, Any
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+class StandardRequest(BaseModel):
+    """Use this Pydantic pattern for all requests"""
+    field: str = Field(..., description="Clear description")
+
+class StandardResponse(BaseModel):
+    """Use this response pattern everywhere"""
+    success: bool
+    data: Optional[Any] = None
+    error_message: Optional[str] = None
+
+@app.post("/endpoint", response_model=StandardResponse)
+async def standard_endpoint(request: StandardRequest):
+    """
+    Apply standard docstring format:
+    - Purpose
+    - Args with types
+    - Returns with format
+    - Raises with conditions
+    - Example usage
+    """
+    # Apply universal error handling pattern here
+```
+
+### File Organization
+```python
+"""
+Standard Python file structure:
+1. Module docstring explaining purpose
+2. Imports: standard lib, third-party, local
+3. Logging setup using standard config
+4. Functions with 30% comment ratio
+5. Single responsibility principle
+"""
+```
+
+## SQLITE STANDARDS
+
+### Database Operations Template
+```python
+def standard_db_operation(conn: sqlite3.Connection, operation_data: Any) -> Dict[str, Any]:
+    """
+    Apply this pattern to all SQLite operations:
+    - Validate inputs using standard validation pattern
+    - Use parameterized queries (prevent injection)
+    - Apply standard error handling
+    - Use in-memory databases (:memory:) for temporary processing
+    - Clean up connections properly
+    """
+    # Apply universal error handling and validation patterns
+```
+
+### Security Rules
+- **ALWAYS use parameterized queries**
+- **Validate table/column names** with regex: `^[a-zA-Z_][a-zA-Z0-9_]*$`
+- **Sanitize user inputs** before database operations
+- **Use in-memory databases** for session processing
+
+## MICROSOFT AUTOGEN PATTERNS
+
+### Agent Configuration Template
+```python
+def create_agent(role: str, expertise: str) -> AssistantAgent:
+    """
+    Standard agent creation pattern - customize role and expertise
+    
+    Common config:
+    - model: "gpt-4" (NOT gpt-4o for cost optimization)
+    - max_tokens: 500 (control costs)
+    - temperature: 0.1 (deterministic responses)
+    - timeout: 30, request_timeout: 60
+    """
+    config_list = [{
+        "model": "gpt-4",
+        "api_key": os.environ["OPENAI_API_KEY"],
+        "max_tokens": 500,
+        "temperature": 0.1,
+        "timeout": 30,
+        "request_timeout": 60
+    }]
+    
+    return AssistantAgent(
+        name=role,
+        llm_config={"config_list": config_list},
+        system_message=expertise,  # Detailed role definition
+        human_input_mode="NEVER",  # Automated for POC
+        max_consecutive_auto_reply=3,  # Prevent infinite loops
+        code_execution_config=False
+    )
+```
+
+### Conversation Management
+```python
+async def run_agent_conversation(agents: List, initial_message: str) -> Dict[str, Any]:
+    """
+    Standard conversation pattern:
+    1. Create agents with roles
+    2. Initiate conversation with context
+    3. Extract results using _extract_json_from_response()
+    4. Apply standard error handling
+    5. Return standardized response format
+    """
+    # Apply universal error handling pattern
+```
+
+### Agent System Message Patterns
+**For File Analysis Agents:**
+```
+You are a [ROLE] helping non-technical users.
+WORKFLOW: [Step-by-step process]
+RESPONSE FORMAT: [Required JSON structure]
+COMMUNICATION STYLE: [Conversational guidelines]
+CONSTRAINTS: [Limitations and rules]
+```
+
+## SPECIALIZED PATTERNS BY DOMAIN
+
+### Excel Processing
+- **Use pandas for metadata extraction**
+- **Apply standard validation to file paths/names**
+- **Convert DataFrames to SQLite with error handling**
+- **Sanitize column names**: `re.sub(r'[^a-zA-Z0-9_]', '_', name)`
+
+### API Development
+- **Use Pydantic models for all request/response**
+- **Apply standard endpoint template**
+- **Implement proper HTTP status codes**
+- **Use FastAPI dependency injection for common operations**
+
+### Agent Conversations
+- **One agent per specialized task**
+- **Clear termination conditions**
+- **JSON output extraction with fallbacks**
+- **Cost-optimized model configuration**
+
+## REFERENCE FILES TO CREATE
+As development progresses, maintain these reference files:
+- `endpoints.md` - Live registry of all API endpoints
+- `functions.md` - Live registry of all functions/methods
+- `agent-registry.md` - AutoGen agent configurations
+- `testing-patterns.md` - Test cases and smoke test procedures
+- `deployment-steps.md` - Azure deployment procedures
+
+## DEBUG PATTERNS
+**When issues arise:**
+1. Check logs first (standard logging format)
+2. Validate inputs using standard validation
+3. Test individual components before integration
+4. Use agent conversation traces for AutoGen issues
+5. Apply step-by-step debugging with comprehensive logging

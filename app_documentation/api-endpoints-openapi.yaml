@@ -1,0 +1,1571 @@
+openapi: 3.0.3
+info:
+  title: Excel Reporting POC API
+  description: |
+    Comprehensive API for Excel file analysis, query generation, and reporting using AutoGen agents and DuckDB.
+    This API enables LangChain agent integration and provides endpoints for file upload, analysis, querying, and reporting.
+  version: 1.0.0
+  contact:
+    name: Excel Reporting POC Team
+    email: support@excelreporting.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://api.excelreporting.com
+    description: Production server
+
+paths:
+  /:
+    get:
+      summary: Root endpoint
+      description: API health verification endpoint
+      operationId: getRoot
+      tags:
+        - System
+      responses:
+        '200':
+          description: API is running successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "AI Excel Reporting API is running"
+              examples:
+                success:
+                  summary: Successful response
+                  value:
+                    message: "AI Excel Reporting API is running"
+
+  /health:
+    get:
+      summary: Health check
+      description: System health check with environment information
+      operationId: getHealth
+      tags:
+        - System
+      responses:
+        '200':
+          description: System is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, unhealthy]
+                    example: "healthy"
+                  environment:
+                    type: string
+                    example: "development"
+              examples:
+                healthy:
+                  summary: Healthy system
+                  value:
+                    status: "healthy"
+                    environment: "development"
+
+  /upload:
+    post:
+      summary: Upload Excel files
+      description: Upload and process Excel files for analysis
+      operationId: uploadFiles
+      tags:
+        - File Management
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  maxItems: 5
+                  description: Excel files to upload (.xlsx, .xls)
+            encoding:
+              files:
+                contentType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      responses:
+        '200':
+          description: Files uploaded and processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UploadedFile'
+                  session_id:
+                    type: string
+                    example: "session_123456"
+                  message:
+                    type: string
+                    example: "Files uploaded successfully"
+        '400':
+          description: Validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                validation_error:
+                  summary: File validation failed
+                  value:
+                    success: false
+                    error: "Validation errors: File too large; Invalid format"
+        '500':
+          description: Processing error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /autogen-chat:
+    post:
+      summary: AutoGen agent conversation
+      description: Main AutoGen agent conversation endpoint for AI interactions
+      operationId: autogenChat
+      tags:
+        - Agent System
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutogenChatRequest'
+            examples:
+              analysis_request:
+                summary: File analysis request
+                value:
+                  user_input: "Analyze the sales data and show me top performers"
+                  localStorage_context:
+                    session_id: "session_123"
+                    uploaded_files: ["sales_data.xlsx"]
+                    current_doc_id: "sales_data_2024_001"
+      responses:
+        '200':
+          description: Agent conversation completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AutogenChatResponse'
+        '400':
+          description: Missing required parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Agent conversation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /query:
+    post:
+      summary: Execute natural language query
+      description: Convert natural language to SQL and execute via DuckDB
+      operationId: executeQuery
+      tags:
+        - Query System
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              vendor_spending:
+                summary: Vendor spending query
+                value:
+                  doc_id: "hospital_ledger_fy2024_001"
+                  query_text: "How much did we spend on Vendor X in Q2?"
+                  schema: ["Vendor", "Date", "Amount"]
+                  metadata:
+                    record_count: 1200
+                    created: "2024-01-01"
+                  datetime_context:
+                    now: "2025-09-02"
+                    current_quarter: "Q3"
+                    last_quarter: "Q2"
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: SQL execution error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /report:
+    post:
+      summary: Generate report
+      description: Generate reports with filters, grouping, and formatting
+      operationId: generateReport
+      tags:
+        - Report System
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportRequest'
+            examples:
+              sales_summary:
+                summary: Sales summary report
+                value:
+                  doc_id: "sales_data_2024_001"
+                  report_name: "Q3 Sales Summary"
+                  filters:
+                    quarter: "Q3"
+                    status: "completed"
+                  group_by: ["region", "product_category"]
+                  aggregations:
+                    amount: "sum"
+                    quantity: "sum"
+                  sort_by: "amount"
+                  sort_order: "desc"
+                  limit: 100
+      responses:
+        '200':
+          description: Report generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '400':
+          description: Invalid report parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Report generation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /save_query:
+    post:
+      summary: Save query
+      description: Persist queries to DuckDB and JSON metadata
+      operationId: saveQuery
+      tags:
+        - Query System
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveQueryRequest'
+      responses:
+        '200':
+          description: Query saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaveQueryResponse'
+        '400':
+          description: Invalid query data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Database save error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /saved_queries:
+    get:
+      summary: Get saved queries
+      description: Retrieve saved queries for navigation
+      operationId: getSavedQueries
+      tags:
+        - Query System
+      parameters:
+        - name: doc_id
+          in: query
+          description: Filter by document ID
+          required: false
+          schema:
+            type: string
+        - name: doc_ids
+          in: query
+          description: Comma-separated list of document IDs
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Queries retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedQueriesResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /execute_query/{query_name}:
+    get:
+      summary: Execute saved query
+      description: Execute saved query by name
+      operationId: executeSavedQuery
+      tags:
+        - Query System
+      parameters:
+        - name: query_name
+          in: path
+          description: Name of the saved query to execute
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryExecutionResponse'
+        '404':
+          description: Query not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Execution error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /save_report:
+    post:
+      summary: Save report
+      description: Persist reports to DuckDB and JSON metadata
+      operationId: saveReport
+      tags:
+        - Report System
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveReportRequest'
+      responses:
+        '200':
+          description: Report saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaveReportResponse'
+        '400':
+          description: Invalid report data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Database save error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /saved_reports:
+    get:
+      summary: Get saved reports
+      description: Retrieve saved reports for navigation
+      operationId: getSavedReports
+      tags:
+        - Report System
+      parameters:
+        - name: doc_id
+          in: query
+          description: Filter by document ID
+          required: false
+          schema:
+            type: string
+        - name: doc_ids
+          in: query
+          description: Comma-separated list of document IDs
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reports retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedReportsResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /execute_report/{report_name}:
+    get:
+      summary: Execute saved report
+      description: Execute saved report by name
+      operationId: executeSavedReport
+      tags:
+        - Report System
+      parameters:
+        - name: report_name
+          in: path
+          description: Name of the saved report to execute
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportExecutionResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Execution error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /download-excel/{filename}:
+    get:
+      summary: Download Excel file
+      description: Download generated Excel files
+      operationId: downloadExcel
+      tags:
+        - File Management
+      parameters:
+        - name: filename
+          in: path
+          description: Name of the file to download
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File downloaded successfully
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Download error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tables:
+    get:
+      summary: View database tables
+      description: Display database tables in HTML format
+      operationId: viewTables
+      tags:
+        - Database Management
+      responses:
+        '200':
+          description: Tables displayed successfully
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /check-tables:
+    get:
+      summary: Check table structure
+      description: Check DuckDB table structure
+      operationId: checkTables
+      tags:
+        - Database Management
+      responses:
+        '200':
+          description: Table structure retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableStructureResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /doc-registry:
+    get:
+      summary: Get document registry
+      description: Display document registry contents
+      operationId: getDocRegistry
+      tags:
+        - Database Management
+      responses:
+        '200':
+          description: Registry retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocRegistryResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /queries:
+    get:
+      summary: Get all queries
+      description: Get all queries for SuperMenu navigation
+      operationId: getAllQueries
+      tags:
+        - Navigation
+      responses:
+        '200':
+          description: Queries retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllQueriesResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /reports:
+    get:
+      summary: Get all reports
+      description: Get all reports for SuperMenu navigation
+      operationId: getAllReports
+      tags:
+        - Navigation
+      responses:
+        '200':
+          description: Reports retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AllReportsResponse'
+        '500':
+          description: Database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /query/{query_id}:
+    patch:
+      summary: Toggle query favorite
+      description: Toggle query favorite status
+      operationId: toggleQueryFavorite
+      tags:
+        - Navigation
+      parameters:
+        - name: query_id
+          in: path
+          description: ID of the query to update
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_favorite:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: Query updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateResponse'
+        '400':
+          description: Invalid query ID or request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Query not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Update error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /report/{report_id}:
+    patch:
+      summary: Toggle report favorite
+      description: Toggle report favorite status
+      operationId: toggleReportFavorite
+      tags:
+        - Navigation
+      parameters:
+        - name: report_id
+          in: path
+          description: ID of the report to update
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_favorite:
+                  type: boolean
+                  example: true
+      responses:
+        '200':
+          description: Report updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateResponse'
+        '400':
+          description: Invalid report ID or request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Update error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /query/run:
+    post:
+      summary: Run query directly
+      description: Execute saved query directly using SQL
+      operationId: runQuery
+      tags:
+        - Direct Execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query_name:
+                  type: string
+                  example: "Top Vendors Q3"
+                doc_id:
+                  type: string
+                  example: "sales_data_2024_001"
+              required:
+                - query_name
+                - doc_id
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryExecutionResponse'
+        '400':
+          description: Invalid query name or doc_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Query not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Execution error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /report/run:
+    post:
+      summary: Run report directly
+      description: Execute saved report directly using configuration
+      operationId: runReport
+      tags:
+        - Direct Execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                report_name:
+                  type: string
+                  example: "Sales Summary Q3"
+                doc_id:
+                  type: string
+                  example: "sales_data_2024_001"
+              required:
+                - report_name
+                - doc_id
+      responses:
+        '200':
+          description: Report executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportExecutionResponse'
+        '400':
+          description: Invalid report name or doc_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Report not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Execution error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    UploadedFile:
+      type: object
+      properties:
+        filename:
+          type: string
+          example: "sales_data.xlsx"
+        json_filename:
+          type: string
+          example: "sales_data_2024-01-01_120000.json"
+        metadata:
+          $ref: '#/components/schemas/FileMetadata'
+        excel_path:
+          type: string
+          example: "stored_queries/files/sales_data.xlsx"
+        json_path:
+          type: string
+          example: "stored_queries/sales_data_2024-01-01_120000.json"
+
+    FileMetadata:
+      type: object
+      properties:
+        sheets:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SheetMetadata'
+        total_sheets:
+          type: integer
+          example: 3
+        total_fields:
+          type: integer
+          example: 15
+        total_rows:
+          type: integer
+          example: 1200
+
+    SheetMetadata:
+      type: object
+      properties:
+        fields:
+          type: array
+          items:
+            type: string
+          example: ["Company", "Amount", "Date"]
+        types:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            Company: "object"
+            Amount: "float64"
+            Date: "datetime64"
+        row_count:
+          type: integer
+          example: 400
+
+    AutogenChatRequest:
+      type: object
+      properties:
+        user_input:
+          type: string
+          description: User's natural language message
+          example: "Analyze the sales data and show me top performers"
+        localStorage_context:
+          $ref: '#/components/schemas/LocalStorageContext'
+      required:
+        - user_input
+
+    LocalStorageContext:
+      type: object
+      properties:
+        session_id:
+          type: string
+          example: "session_123456"
+        uploaded_files:
+          type: array
+          items:
+            type: string
+          example: ["sales_data.xlsx", "inventory.xlsx"]
+        current_doc_id:
+          type: string
+          example: "sales_data_2024_001"
+
+    AutogenChatResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        agent_response:
+          type: string
+          example: "I've analyzed your sales data. Here are the top 5 performers..."
+        routing_info:
+          $ref: '#/components/schemas/RoutingInfo'
+        results:
+          $ref: '#/components/schemas/AgentResults'
+        next_actions:
+          type: array
+          items:
+            type: string
+          example: ["view_query_results", "save_query", "generate_report"]
+        error:
+          type: string
+          example: null
+
+    RoutingInfo:
+      type: object
+      properties:
+        target_agent:
+          type: string
+          enum: [QueryAgent, ReportAgent, UploadAgent, MemoryAgent]
+          example: "QueryAgent"
+        conversation_id:
+          type: string
+          example: "conv_123456"
+
+    AgentResults:
+      type: object
+      properties:
+        query_results:
+          type: object
+          additionalProperties: true
+        report_results:
+          type: object
+          additionalProperties: true
+        file_analysis:
+          type: object
+          additionalProperties: true
+
+    QueryRequest:
+      type: object
+      properties:
+        doc_id:
+          type: string
+          description: Document identifier
+          example: "hospital_ledger_fy2024_001"
+        query_text:
+          type: string
+          description: Natural language query
+          example: "How much did we spend on Vendor X in Q2?"
+        schema:
+          type: array
+          items:
+            type: string
+          description: Available fields in the document
+          example: ["Vendor", "Date", "Amount"]
+        metadata:
+          $ref: '#/components/schemas/QueryMetadata'
+        datetime_context:
+          $ref: '#/components/schemas/DateTimeContext'
+      required:
+        - doc_id
+        - query_text
+
+    QueryMetadata:
+      type: object
+      properties:
+        record_count:
+          type: integer
+          example: 1200
+        created:
+          type: string
+          format: date
+          example: "2024-01-01"
+
+    DateTimeContext:
+      type: object
+      properties:
+        now:
+          type: string
+          example: "2025-09-02"
+        current_quarter:
+          type: string
+          example: "Q3"
+        last_quarter:
+          type: string
+          example: "Q2"
+
+    QueryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        sql:
+          type: string
+          example: "SELECT SUM(Amount) FROM hospital_ledger_fy2024_001 WHERE Vendor = 'Vendor X' AND Quarter = 'Q2'"
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              type: number
+          example: [[124000.50]]
+        columns:
+          type: array
+          items:
+            type: string
+          example: ["Total Amount"]
+        summary:
+          type: string
+          example: "We spent $124,000.50 on Vendor X in Q2."
+        execution_time:
+          type: number
+          format: float
+          example: 0.125
+        row_count:
+          type: integer
+          example: 1
+        error:
+          type: string
+          example: null
+
+    ReportRequest:
+      type: object
+      properties:
+        doc_id:
+          type: string
+          description: Document identifier
+          example: "sales_data_2024_001"
+        report_name:
+          type: string
+          description: Name of the report
+          example: "Q3 Sales Summary"
+        filters:
+          type: object
+          additionalProperties: true
+          description: Filter criteria
+          example:
+            quarter: "Q3"
+            status: "completed"
+        group_by:
+          type: array
+          items:
+            type: string
+          description: Fields to group by
+          example: ["region", "product_category"]
+        aggregations:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [sum, avg, count, min, max]
+          description: Aggregation functions
+          example:
+            amount: "sum"
+            quantity: "sum"
+        sort_by:
+          type: string
+          description: Field to sort by
+          example: "amount"
+        sort_order:
+          type: string
+          enum: [asc, desc]
+          description: Sort order
+          example: "desc"
+        limit:
+          type: integer
+          description: Maximum number of rows
+          example: 100
+      required:
+        - doc_id
+        - report_name
+
+    ReportResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        report_name:
+          type: string
+          example: "Q3 Sales Summary"
+        sql:
+          type: string
+          example: "SELECT region, product_category, SUM(amount) as total_amount FROM sales_data_2024_001 WHERE quarter = 'Q3' GROUP BY region, product_category ORDER BY total_amount DESC LIMIT 100"
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              oneOf:
+                - type: string
+                - type: number
+          example: [["North", "Electronics", 150000.50], ["South", "Clothing", 120000.75]]
+        columns:
+          type: array
+          items:
+            type: string
+          example: ["Region", "Product Category", "Total Amount"]
+        summary:
+          type: string
+          example: "Q3 Sales Summary shows North region leading with Electronics at $150,000.50"
+        execution_time:
+          type: number
+          format: float
+          example: 0.250
+        row_count:
+          type: integer
+          example: 2
+        error:
+          type: string
+          example: null
+
+    SaveQueryRequest:
+      type: object
+      properties:
+        doc_id:
+          type: string
+          example: "sales_data_2024_001"
+        query_name:
+          type: string
+          example: "Top Vendors Q3"
+        query_text:
+          type: string
+          example: "Show me the top 10 vendors by total spending in Q3"
+        sql:
+          type: string
+          example: "SELECT vendor, SUM(amount) as total FROM sales_data_2024_001 WHERE quarter = 'Q3' GROUP BY vendor ORDER BY total DESC LIMIT 10"
+        description:
+          type: string
+          example: "Top 10 vendors by spending in Q3 2024"
+        is_favorite:
+          type: boolean
+          example: false
+      required:
+        - doc_id
+        - query_name
+        - query_text
+        - sql
+
+    SaveQueryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        query_id:
+          type: integer
+          example: 123
+        message:
+          type: string
+          example: "Query saved successfully"
+        error:
+          type: string
+          example: null
+
+    SaveReportRequest:
+      type: object
+      properties:
+        doc_id:
+          type: string
+          example: "sales_data_2024_001"
+        report_name:
+          type: string
+          example: "Sales Summary Q3"
+        report_config:
+          $ref: '#/components/schemas/ReportConfig'
+        description:
+          type: string
+          example: "Quarterly sales summary with regional breakdown"
+        is_favorite:
+          type: boolean
+          example: false
+      required:
+        - doc_id
+        - report_name
+        - report_config
+
+    ReportConfig:
+      type: object
+      properties:
+        filters:
+          type: object
+          additionalProperties: true
+        group_by:
+          type: array
+          items:
+            type: string
+        aggregations:
+          type: object
+          additionalProperties:
+            type: string
+        sort_by:
+          type: string
+        sort_order:
+          type: string
+        limit:
+          type: integer
+
+    SaveReportResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        report_id:
+          type: integer
+          example: 456
+        message:
+          type: string
+          example: "Report saved successfully"
+        error:
+          type: string
+          example: null
+
+    SavedQueriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        queries:
+          type: array
+          items:
+            $ref: '#/components/schemas/SavedQuery'
+        error:
+          type: string
+          example: null
+
+    SavedQuery:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        doc_id:
+          type: string
+          example: "sales_data_2024_001"
+        query_name:
+          type: string
+          example: "Top Vendors Q3"
+        query_text:
+          type: string
+          example: "Show me the top 10 vendors by total spending in Q3"
+        sql:
+          type: string
+          example: "SELECT vendor, SUM(amount) as total FROM sales_data_2024_001 WHERE quarter = 'Q3' GROUP BY vendor ORDER BY total DESC LIMIT 10"
+        description:
+          type: string
+          example: "Top 10 vendors by spending in Q3 2024"
+        is_favorite:
+          type: boolean
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+
+    SavedReportsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/SavedReport'
+        error:
+          type: string
+          example: null
+
+    SavedReport:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 456
+        doc_id:
+          type: string
+          example: "sales_data_2024_001"
+        report_name:
+          type: string
+          example: "Sales Summary Q3"
+        report_config:
+          $ref: '#/components/schemas/ReportConfig'
+        description:
+          type: string
+          example: "Quarterly sales summary with regional breakdown"
+        is_favorite:
+          type: boolean
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+
+    QueryExecutionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        query_name:
+          type: string
+          example: "Top Vendors Q3"
+        sql:
+          type: string
+          example: "SELECT vendor, SUM(amount) as total FROM sales_data_2024_001 WHERE quarter = 'Q3' GROUP BY vendor ORDER BY total DESC LIMIT 10"
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              oneOf:
+                - type: string
+                - type: number
+          example: [["Vendor A", 150000.50], ["Vendor B", 120000.75]]
+        columns:
+          type: array
+          items:
+            type: string
+          example: ["Vendor", "Total Amount"]
+        execution_time:
+          type: number
+          format: float
+          example: 0.125
+        row_count:
+          type: integer
+          example: 2
+        error:
+          type: string
+          example: null
+
+    ReportExecutionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        report_name:
+          type: string
+          example: "Sales Summary Q3"
+        sql:
+          type: string
+          example: "SELECT region, product_category, SUM(amount) as total_amount FROM sales_data_2024_001 WHERE quarter = 'Q3' GROUP BY region, product_category ORDER BY total_amount DESC LIMIT 100"
+        rows:
+          type: array
+          items:
+            type: array
+            items:
+              oneOf:
+                - type: string
+                - type: number
+          example: [["North", "Electronics", 150000.50], ["South", "Clothing", 120000.75]]
+        columns:
+          type: array
+          items:
+            type: string
+          example: ["Region", "Product Category", "Total Amount"]
+        execution_time:
+          type: number
+          format: float
+          example: 0.250
+        row_count:
+          type: integer
+          example: 2
+        error:
+          type: string
+          example: null
+
+    TableStructureResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TableInfo'
+        error:
+          type: string
+          example: null
+
+    TableInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "sales_data_2024_001"
+        columns:
+          type: array
+          items:
+            $ref: '#/components/schemas/ColumnInfo'
+        row_count:
+          type: integer
+          example: 1200
+
+    ColumnInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "vendor"
+        type:
+          type: string
+          example: "VARCHAR"
+        nullable:
+          type: boolean
+          example: true
+
+    DocRegistryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentInfo'
+        error:
+          type: string
+          example: null
+
+    DocumentInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        document_type:
+          type: string
+          example: "Sales Data"
+        document_code:
+          type: string
+          example: "SALES"
+        field_patterns:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+
+    AllQueriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        queries:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuerySummary'
+        error:
+          type: string
+          example: null
+
+    QuerySummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        doc_id:
+          type: string
+          example: "sales_data_2024_001"
+        query_name:
+          type: string
+          example: "Top Vendors Q3"
+        description:
+          type: string
+          example: "Top 10 vendors by spending in Q3 2024"
+        is_favorite:
+          type: boolean
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+
+    AllReportsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportSummary'
+        error:
+          type: string
+          example: null
+
+    ReportSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 456
+        doc_id:
+          type: string
+          example: "sales_data_2024_001"
+        report_name:
+          type: string
+          example: "Sales Summary Q3"
+        description:
+          type: string
+          example: "Quarterly sales summary with regional breakdown"
+        is_favorite:
+          type: boolean
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T12:00:00Z"
+
+    UpdateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Updated successfully"
+        error:
+          type: string
+          example: null
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Error message describing what went wrong"
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details
+
+tags:
+  - name: System
+    description: System health and status endpoints
+  - name: File Management
+    description: File upload, download, and processing endpoints
+  - name: Agent System
+    description: AutoGen agent conversation and orchestration endpoints
+  - name: Query System
+    description: Query generation, execution, and management endpoints
+  - name: Report System
+    description: Report generation, execution, and management endpoints
+  - name: Database Management
+    description: Database inspection and administration endpoints
+  - name: Navigation
+    description: Navigation and favorites management endpoints
+  - name: Direct Execution
+    description: Direct query and report execution endpoints
